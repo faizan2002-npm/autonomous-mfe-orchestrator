@@ -1,0 +1,27 @@
+{
+  "name": "autonomous-mfe-orchestrator",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Autonomous Micro-Frontend Orchestrator with Agentic AI Drift Healing",
+  "packageManager": "pnpm@9.12.0",
+  "scripts": {
+    "dev": "pnpm --parallel -r run dev",
+    "build": "pnpm -r run build",
+    "test": "pnpm -r run test",
+    "lint": "pnpm -r run lint",
+    "format": "prettier --write \"**/*.{ts,tsx,js,json,md}\"",
+    "db:migrate": "pnpm --filter @orchestrator/gateway prisma migrate dev",
+    "db:generate": "pnpm --filter @orchestrator/gateway prisma generate",
+    "docker:up": "docker compose up -d",
+    "docker:down": "docker compose down"
+  },
+  "devDependencies": {
+    "@types/node": "^20.14.0",
+    "prettier": "^3.3.0",
+    "typescript": "^5.4.5"
+  },
+  "engines": {
+    "node": ">=20.0.0",
+    "pnpm": ">=9.0.0"
+  }
+}
