@@ -66,13 +66,14 @@ graph TB
 | **Micro-Frontends** | React.js | 18.x | Independently deployable UI fragments |
 | **Module Federation** | Webpack 5 | 5.x | Dynamic remote module loading for runtime patch injection |
 | **Governance Dashboard** | Next.js | 14.x | Admin interface with SSR for fast initial load |
-| **API Gateway** | Fastify | 4.x | Reverse proxy + observation middleware |
-| **Agentic AI** | LangChain.js | 0.2.x | ReAct agent orchestration with tool calling |
+| **API Gateway** | NestJS (Fastify Engine) | 10.x / 4.x | Enterprise modular IoC/DI architecture + ultra-high performance reverse proxy |
+| **Agentic AI** | LangChain.js / ReAct | 0.2.x | ReAct agent orchestration with tool calling |
 | **LLM Provider** | Local (Ollama) + Llama 3/CodeLlama | latest | Code generation and schema reasoning (Zero cost, high privacy) |
 | **LLM Provider (Alt)** | Local (Ollama) + DeepSeek Coder | latest | Fallback local model |
-| **Database** | PostgreSQL | 15.x | Primary persistent store (ACID, JSONB support) |
+| **Database** | Supabase (PostgreSQL 15) | 15.x | Managed PostgreSQL with connection pooling & real-time telemetry events |
 | **Cache** | Redis | 7.x | Contract cache, canary metrics, real-time counters |
-| **ORM** | Prisma | 5.x | Type-safe database client, migrations, schema management |
+| **ORM / Query Builder** | Drizzle ORM | 0.30.x | Ultra-lightweight type-safe SQL query builder (Zero-overhead, raw SQL latency) |
+| **Migration Tool** | Drizzle Kit | 0.21.x | Isolated per-schema SQL migrations |
 | **Syntax Validation** | esprima / @babel/parser | latest | AST parsing for generated code validation |
 | **Containerization** | Docker + Docker Compose | 24.x / 2.x | Cross-platform deployment, service orchestration |
 | **Package Manager** | pnpm (Workspaces) | 9.x | Strict dependency isolation, hard-linked store, monorepo workspace orchestration |

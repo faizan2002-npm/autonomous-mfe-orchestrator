@@ -38,18 +38,18 @@ pnpm install
 # 4. Start infrastructure with Docker Compose (PostgreSQL, Redis, Ollama)
 docker compose up -d
 
-# 5. Run database migrations via pnpm
-pnpm --filter api-gateway prisma migrate deploy
+# 5. Run database migrations via Drizzle Kit (Supabase / Postgres)
+pnpm --filter @orchestrator/database run db:generate
 
 # 6. Start development environment
 pnpm dev
 
 # System Endpoints:
-# - Micro-Frontend Shell:     http://localhost:5000
-# - API Gateway (Fastify):    http://localhost:4000
-# - Governance Dashboard:     http://localhost:6000
-# - User Service (Backend):   http://localhost:3001
-# - Order Service (Backend):  http://localhost:3002
+# - Micro-Frontend Shell:              http://localhost:5000
+# - API Gateway (NestJS + Fastify):    http://localhost:4000
+# - Governance Dashboard:              http://localhost:6000
+# - User Service (Backend):            http://localhost:3001
+# - Order Service (Backend):           http://localhost:3002
 ```
 
 ## System Overview
@@ -66,19 +66,19 @@ pnpm dev
               │                               │
               ▼                               ▼
 ┌─────────────────────────────────────────────────────────────────────┐
-│                   AGENTIC CONTROL PLANE                            │
+│              AGENTIC CONTROL PLANE (NestJS + Fastify)               │
 │  ┌────────────────────────────────────────────────────────┐        │
-│  │  API Gateway (Fastify) — localhost:4000                 │        │
+│  │  NestJS Gateway — localhost:4000                        │        │
 │  │  ┌──────────────┐ ┌──────────────┐ ┌────────────────┐ │        │
-│  │  │ Observation   │ │ Cognitive    │ │ Execution &    │ │        │
-│  │  │ Engine        │ │ Reasoning    │ │ Deployment     │ │        │
-│  │  │ (Middleware)   │ │ (LangChain)  │ │ (Canary)       │ │        │
+│  │  │ Observation   │ │ Cognitive    │ │ Canary Module  │ │        │
+│  │  │ Module        │ │ Service      │ │ (Module Fed)   │ │        │
+│  │  │ (Interceptor) │ │ (Ollama ReAct)│ │ (Traffic Route)│ │        │
 │  │  └──────┬────────┘ └──────┬───────┘ └──────┬─────────┘ │        │
 │  └─────────┼────────────────┼────────────────┼────────────┘        │
 │            │                │                │                      │
 │     ┌──────▼──────┐  ┌─────▼──────┐  ┌──────▼──────┐              │
-│     │ PostgreSQL   │  │ Redis      │  │ Virtual FS   │              │
-│     │ (Data Store) │  │ (Cache)    │  │ (Patches)    │              │
+│     │ Supabase PG  │  │ Redis      │  │ Virtual FS   │              │
+│     │ (Drizzle ORM)│  │ (Cache)    │  │ (Patches)    │              │
 │     └─────────────┘  └────────────┘  └─────────────┘              │
 └─────────────────────────────────────────────────────────────────────┘
               ▲                               ▲
