@@ -1,0 +1,25 @@
+{
+  "name": "@orchestrator/gateway",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch src/server.ts",
+    "build": "tsc",
+    "start": "node dist/server.js"
+  },
+  "dependencies": {
+    "@fastify/cors": "^9.0.1",
+    "@orchestrator/core": "workspace:*",
+    "@orchestrator/shared-types": "workspace:*",
+    "@prisma/client": "^5.14.0",
+    "fastify": "^4.27.0",
+    "ioredis": "^5.4.1",
+    "prisma": "^5.14.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.14.0",
+    "tsx": "^4.11.0",
+    "typescript": "^5.4.5"
+  }
+}
