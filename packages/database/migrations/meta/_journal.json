@@ -3,10 +3,45 @@
   "dialect": "postgresql",
   "entries": [
     {
-      "idx": 0,
+      "idx": 1,
       "version": "6",
-      "when": 1790850124922,
-      "tag": "0000_small_young_avengers",
+      "when": 1790850124923,
+      "tag": "0001_service_registries",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1790850124924,
+      "tag": "0002_api_contracts",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "6",
+      "when": 1790850124925,
+      "tag": "0003_drift_events",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "6",
+      "when": 1790850124926,
+      "tag": "0004_patch_registries",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "6",
+      "when": 1790850124927,
+      "tag": "0005_canary_metrics",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "6",
+      "when": 1790850124928,
+      "tag": "0006_governance_audits",
       "breakpoints": true
     }
   ]

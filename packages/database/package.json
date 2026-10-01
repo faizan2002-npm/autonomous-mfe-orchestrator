@@ -12,7 +12,8 @@
   },
   "dependencies": {
     "drizzle-orm": "^0.30.10",
-    "postgres": "^3.4.4"
+    "postgres": "^3.4.4",
+    "@orchestrator/config": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "^20.14.0",

@@ -1,6 +1,6 @@
 import { pgTable, uuid, varchar, text, timestamp, pgEnum } from 'drizzle-orm/pg-core';
-import { driftEvents } from './drift-events';
-import { patchRegistries } from './patch-registries';
+import { driftEvents } from './drift-events.js';
+import { patchRegistries } from './patch-registries.js';
 
 export const governanceStatusEnum = pgEnum('governance_status', [
   'AUTO_APPROVED',

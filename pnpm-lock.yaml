@@ -38,6 +38,9 @@ importers:
       '@nestjs/platform-fastify':
         specifier: ^10.3.9
         version: 10.4.22(@nestjs/common@10.4.22(reflect-metadata@0.2.2)(rxjs@7.8.2))(@nestjs/core@10.4.22(@nestjs/common@10.4.22(reflect-metadata@0.2.2)(rxjs@7.8.2))(reflect-metadata@0.2.2)(rxjs@7.8.2))
+      '@orchestrator/config':
+        specifier: workspace:*
+        version: link:../../packages/config
       '@orchestrator/core':
         specifier: workspace:*
         version: link:../../packages/core
@@ -76,6 +79,15 @@ importers:
         specifier: ^5.4.5
         version: 5.9.3
 
+  packages/config:
+    devDependencies:
+      '@types/node':
+        specifier: ^20.14.0
+        version: 20.19.43
+      typescript:
+        specifier: ^5.4.5
+        version: 5.9.3
+
   packages/core:
     dependencies:
       '@babel/parser':
@@ -94,6 +106,9 @@ importers:
 
   packages/database:
     dependencies:
+      '@orchestrator/config':
+        specifier: workspace:*
+        version: link:../config
       drizzle-orm:
         specifier: ^0.30.10
         version: 0.30.10(postgres@3.4.9)

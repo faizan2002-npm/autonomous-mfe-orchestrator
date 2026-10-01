@@ -1,5 +1,5 @@
 import { pgTable, uuid, varchar, jsonb, integer, boolean, timestamp, uniqueIndex } from 'drizzle-orm/pg-core';
-import { serviceRegistries } from './service-registries';
+import { serviceRegistries } from './service-registries.js';
 
 export const apiContracts = pgTable(
   'api_contracts',

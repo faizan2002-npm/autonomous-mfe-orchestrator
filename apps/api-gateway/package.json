@@ -21,7 +21,8 @@
     "ioredis": "^5.4.1",
     "postgres": "^3.4.4",
     "reflect-metadata": "^0.2.2",
-    "rxjs": "^7.8.1"
+    "rxjs": "^7.8.1",
+    "@orchestrator/config": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "^20.14.0",

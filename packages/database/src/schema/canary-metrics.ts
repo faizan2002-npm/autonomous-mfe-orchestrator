@@ -1,5 +1,5 @@
 import { pgTable, uuid, integer, doublePrecision, boolean, text, timestamp } from 'drizzle-orm/pg-core';
-import { patchRegistries } from './patch-registries';
+import { patchRegistries } from './patch-registries.js';
 
 export const canaryMetrics = pgTable('canary_metrics', {
   id: uuid('id').defaultRandom().primaryKey(),

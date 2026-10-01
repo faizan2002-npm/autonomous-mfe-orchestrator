@@ -1,3 +1,4 @@
+import { getDatabaseUrl } from '@orchestrator/config';
 import { drizzle } from 'drizzle-orm/postgres-js';
 import postgres from 'postgres';
 import * as schema from './schema/index.js';
@@ -5,7 +6,7 @@ import * as schema from './schema/index.js';
 export * from './schema/index.js';
 
 export function createDatabaseClient(connectionString?: string) {
-  const url = connectionString || process.env.DATABASE_URL || 'postgresql://postgres:postgres@localhost:5432/mfe_orchestrator';
+  const url = connectionString || getDatabaseUrl();
   const client = postgres(url, {
     max: 10,
     idle_timeout: 20,

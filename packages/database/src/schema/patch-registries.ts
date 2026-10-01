@@ -1,6 +1,6 @@
 import { pgTable, uuid, text, varchar, doublePrecision, integer, timestamp, pgEnum } from 'drizzle-orm/pg-core';
-import { apiContracts } from './api-contracts';
-import { driftEvents } from './drift-events';
+import { apiContracts } from './api-contracts.js';
+import { driftEvents } from './drift-events.js';
 
 export const patchStatusEnum = pgEnum('patch_status', [
   'GENERATING',

@@ -1,3 +1,4 @@
+import { getServiceEndpoints } from '@orchestrator/config';
 import { Injectable, Inject, Logger } from '@nestjs/common';
 import {
   flattenPayload,
@@ -12,7 +13,7 @@ import {
   apiContracts,
   driftEvents,
 } from '@orchestrator/database';
-import { eq, and } from 'drizzle-orm';
+import { eq, and, desc } from 'drizzle-orm';
 import { Redis } from 'ioredis';
 import { DRIZZLE_DB, REDIS_CLIENT } from '../database/database.module.js';
 import { CognitiveService } from '../cognitive/cognitive.service.js';
@@ -44,7 +45,7 @@ export class ObservationService {
     const normalizedPath = this.normalizePath(ctx.endpointPath);
     const cacheKey = `contract:${ctx.serviceName}:${ctx.httpMethod}:${normalizedPath}`;
 
-    let cachedSchemaRaw = await this.redis.get(cacheKey);
+    const cachedSchemaRaw = await this.redis.get(cacheKey);
     let expectedSchemaTokens: FlattenedSchema;
 
     if (!cachedSchemaRaw) {
@@ -66,7 +67,7 @@ export class ObservationService {
               eq(apiContracts.httpMethod, ctx.httpMethod),
               eq(apiContracts.isActive, true)
             )
-          );
+          ).orderBy(desc(apiContracts.version)).limit(1);
         contract = foundContract;
       }
 
@@ -81,7 +82,7 @@ export class ObservationService {
             .values({
               serviceName: ctx.serviceName,
               serviceType: 'REST',
-              endpointUrl: `http://localhost:${ctx.serviceName === 'user-service' ? '3001' : '3002'}`,
+              endpointUrl: getServiceEndpoints()[ctx.serviceName],
               mfeConsumer: 'mfe-shell',
               status: 'HEALTHY',
             })
@@ -145,9 +146,10 @@ export class ObservationService {
           and(
             eq(apiContracts.serviceId, service.id),
             eq(apiContracts.endpointPath, normalizedPath),
-            eq(apiContracts.httpMethod, ctx.httpMethod)
+            eq(apiContracts.httpMethod, ctx.httpMethod),
+            eq(apiContracts.isActive, true)
           )
-        );
+        ).orderBy(desc(apiContracts.version)).limit(1);
 
       if (!contract) return;
 

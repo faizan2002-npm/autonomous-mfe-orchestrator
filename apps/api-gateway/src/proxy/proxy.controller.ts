@@ -1,12 +1,10 @@
+import { getServiceEndpoints } from '@orchestrator/config';
 import { Controller, All, Req, Res, Logger } from '@nestjs/common';
 import type { FastifyRequest, FastifyReply } from 'fastify';
 import { ObservationService } from '../observation/observation.service.js';
 import { CanaryService } from '../canary/canary.service.js';
 
-const SERVICES: Record<string, string> = {
-  'user-service': process.env.USER_SERVICE_URL || 'http://localhost:3001',
-  'order-service': process.env.ORDER_SERVICE_URL || 'http://localhost:3002',
-};
+const SERVICES = getServiceEndpoints();
 
 @Controller()
 export class ProxyController {

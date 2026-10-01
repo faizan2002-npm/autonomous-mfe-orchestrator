@@ -1,6 +1,6 @@
 import { pgTable, uuid, doublePrecision, jsonb, boolean, timestamp, pgEnum } from 'drizzle-orm/pg-core';
-import { serviceRegistries } from './service-registries';
-import { apiContracts } from './api-contracts';
+import { serviceRegistries } from './service-registries.js';
+import { apiContracts } from './api-contracts.js';
 
 export const driftTypeEnum = pgEnum('drift_type', [
   'FIELD_RENAMED',
