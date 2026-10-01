@@ -1,0 +1,19 @@
+{
+  "name": "@orchestrator/integration-tests",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test:live": "node --test live.test.mjs nest.test.mjs",
+    "test:nest": "node --test nest.test.mjs"
+  },
+  "devDependencies": {
+    "@orchestrator/gateway": "workspace:*",
+    "@orchestrator/database": "workspace:*",
+    "@orchestrator/ollama-client": "workspace:*",
+    "@orchestrator/adapter-runtime": "workspace:*",
+    "drizzle-orm": "^0.30.10",
+    "ioredis": "^5.4.1",
+    "postgres": "^3.4.4"
+  }
+}

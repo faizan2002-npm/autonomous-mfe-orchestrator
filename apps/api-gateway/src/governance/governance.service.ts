@@ -7,7 +7,7 @@ import {
   governanceAudits,
 } from '@orchestrator/database';
 import { desc } from 'drizzle-orm';
-import { DRIZZLE_DB } from '../database/database.module.js';
+import { DRIZZLE_DB } from '../database/database.tokens.js';
 
 @Injectable()
 export class GovernanceService {
@@ -16,9 +16,21 @@ export class GovernanceService {
   async getOverview() {
     const [services, events, patches, audits] = await Promise.all([
       this.db.select().from(serviceRegistries),
-      this.db.select().from(driftEvents).orderBy(desc(driftEvents.detectedAt)).limit(20),
-      this.db.select().from(patchRegistries).orderBy(desc(patchRegistries.createdAt)).limit(10),
-      this.db.select().from(governanceAudits).orderBy(desc(governanceAudits.createdAt)).limit(10),
+      this.db
+        .select()
+        .from(driftEvents)
+        .orderBy(desc(driftEvents.detectedAt))
+        .limit(20),
+      this.db
+        .select()
+        .from(patchRegistries)
+        .orderBy(desc(patchRegistries.createdAt))
+        .limit(10),
+      this.db
+        .select()
+        .from(governanceAudits)
+        .orderBy(desc(governanceAudits.createdAt))
+        .limit(10),
     ]);
 
     return {

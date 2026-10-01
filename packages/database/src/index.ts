@@ -5,7 +5,7 @@ import * as schema from './schema/index.js';
 
 export * from './schema/index.js';
 
-export function createDatabaseClient(connectionString?: string) {
+export function createDatabaseConnection(connectionString?: string) {
   const url = connectionString || getDatabaseUrl();
   const client = postgres(url, {
     max: 10,
@@ -13,7 +13,14 @@ export function createDatabaseClient(connectionString?: string) {
     connect_timeout: 10,
   });
 
-  return drizzle(client, { schema });
+  return {
+    db: drizzle(client, { schema }),
+    close: () => client.end({ timeout: 5 }),
+  };
+}
+
+export function createDatabaseClient(connectionString?: string) {
+  return createDatabaseConnection(connectionString).db;
 }
 
 export type DrizzleDb = ReturnType<typeof createDatabaseClient>;

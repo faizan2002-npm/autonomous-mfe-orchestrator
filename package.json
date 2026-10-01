@@ -13,7 +13,9 @@
     "db:migrate": "pnpm --filter @orchestrator/database db:migrate",
     "db:generate": "pnpm --filter @orchestrator/database db:generate",
     "docker:up": "docker compose up -d",
-    "docker:down": "docker compose down"
+    "docker:down": "docker compose down",
+    "test:integration": "bash scripts/test-integration.sh",
+    "test:nest": "TEST_SUITE=nest bash scripts/test-integration.sh"
   },
   "devDependencies": {
     "@prisma/client": "5.22.0",

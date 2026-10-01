@@ -1,33 +1,16 @@
-import { Module, Global } from '@nestjs/common';
-import { createDatabaseClient, type DrizzleDb } from '@orchestrator/database';
-import { Redis } from 'ioredis';
+import { Module } from '@nestjs/common';
+import { DatabaseService } from './database.service.js';
+import { DRIZZLE_DB } from './database.tokens.js';
 
-export const DRIZZLE_DB = 'DRIZZLE_DB';
-export const REDIS_CLIENT = 'REDIS_CLIENT';
-
-@Global()
 @Module({
   providers: [
+    DatabaseService,
     {
       provide: DRIZZLE_DB,
-      useFactory: (): DrizzleDb => {
-        return createDatabaseClient(process.env.DATABASE_URL);
-      },
-    },
-    {
-      provide: REDIS_CLIENT,
-      useFactory: (): Redis => {
-        const redisUrl = process.env.REDIS_URL || 'redis://localhost:6379';
-        return new Redis(redisUrl, {
-          maxRetriesPerRequest: 3,
-          retryStrategy(times: number) {
-            return Math.min(times * 100, 3000);
-          },
-          lazyConnect: true,
-        });
-      },
+      inject: [DatabaseService],
+      useFactory: (database: DatabaseService) => database.db,
     },
   ],
-  exports: [DRIZZLE_DB, REDIS_CLIENT],
+  exports: [DRIZZLE_DB],
 })
 export class DatabaseModule {}

@@ -1,9 +1,15 @@
-import { Injectable, Inject, Logger } from '@nestjs/common';
-import { executeInSandbox } from '@orchestrator/core';
-import { type DrizzleDb, patchRegistries } from '@orchestrator/database';
-import { eq } from 'drizzle-orm';
+import { Injectable, Inject, Logger, NotFoundException } from '@nestjs/common';
+import { executeInSandbox } from '@orchestrator/adapter-runtime';
+import {
+  type DrizzleDb,
+  patchRegistries,
+  apiContracts,
+  serviceRegistries,
+} from '@orchestrator/database';
+import { and, eq } from 'drizzle-orm';
 import { Redis } from 'ioredis';
-import { DRIZZLE_DB, REDIS_CLIENT } from '../database/database.module.js';
+import { DRIZZLE_DB } from '../database/database.tokens.js';
+import { REDIS_CLIENT } from '../redis/redis.tokens.js';
 
 interface ActivePatch {
   patchId: string;
@@ -19,10 +25,14 @@ export class CanaryService {
 
   constructor(
     @Inject(DRIZZLE_DB) private readonly db: DrizzleDb,
-    @Inject(REDIS_CLIENT) private readonly redis: Redis
+    @Inject(REDIS_CLIENT) private readonly redis: Redis,
   ) {}
 
-  async deployPatch(serviceName: string, patchId: string, adapterCode: string): Promise<void> {
+  async deployPatch(
+    serviceName: string,
+    patchId: string,
+    adapterCode: string,
+  ): Promise<void> {
     const patch: ActivePatch = {
       patchId,
       serviceName,
@@ -32,13 +42,15 @@ export class CanaryService {
 
     this.localPatches.set(serviceName, patch);
     await this.redis.set(`active_patch:${serviceName}`, JSON.stringify(patch));
-    this.logger.log(`Canary patch for '${serviceName}' deployed (10% allocation).`);
+    this.logger.log(
+      `Canary patch for '${serviceName}' deployed (10% allocation).`,
+    );
   }
 
   applyPatchIfActive(
     serviceName: string,
     rawPayload: unknown,
-    isCanary: boolean
+    isCanary: boolean,
   ): { payload: unknown; isPatched: boolean } {
     const patch = this.localPatches.get(serviceName);
     if (!patch) return { payload: rawPayload, isPatched: false };
@@ -47,7 +59,7 @@ export class CanaryService {
     if (!shouldApply) return { payload: rawPayload, isPatched: false };
 
     const result = executeInSandbox(patch.adapterCode, rawPayload);
-    if (result.success && result.transformedOutput) {
+    if (result.success && result.transformedOutput !== undefined) {
       return { payload: result.transformedOutput, isPatched: true };
     }
 
@@ -68,12 +80,23 @@ export class CanaryService {
   }
 
   async promotePatch(patchId: string, serviceName: string): Promise<void> {
-    const patch = this.localPatches.get(serviceName);
-    if (patch) {
-      patch.canaryPercent = 100;
-      this.localPatches.set(serviceName, patch);
-      await this.redis.set(`active_patch:${serviceName}`, JSON.stringify(patch));
-    }
+    const [record] = await this.db
+      .select({ patch: patchRegistries })
+      .from(patchRegistries)
+      .innerJoin(apiContracts, eq(patchRegistries.contractId, apiContracts.id))
+      .innerJoin(
+        serviceRegistries,
+        eq(apiContracts.serviceId, serviceRegistries.id),
+      )
+      .where(
+        and(
+          eq(patchRegistries.id, patchId),
+          eq(serviceRegistries.serviceName, serviceName),
+        ),
+      )
+      .limit(1);
+    if (!record)
+      throw new NotFoundException('Patch not found for this service');
 
     await this.db
       .update(patchRegistries)
@@ -84,6 +107,20 @@ export class CanaryService {
       })
       .where(eq(patchRegistries.id, patchId));
 
-    this.logger.log(`Patch ${patchId} promoted to 100% PRODUCTION for service '${serviceName}'!`);
+    const promoted: ActivePatch = {
+      patchId,
+      serviceName,
+      adapterCode: record.patch.adapterCode,
+      canaryPercent: 100,
+    };
+    await this.redis.set(
+      `active_patch:${serviceName}`,
+      JSON.stringify(promoted),
+    );
+    this.localPatches.set(serviceName, promoted);
+
+    this.logger.log(
+      `Patch ${patchId} promoted to 100% PRODUCTION for service '${serviceName}'!`,
+    );
   }
 }

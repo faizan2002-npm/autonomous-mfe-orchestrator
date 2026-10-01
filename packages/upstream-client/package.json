@@ -1,17 +1,13 @@
 {
-  "name": "@orchestrator/core",
+  "name": "@orchestrator/upstream-client",
   "version": "1.0.0",
   "private": true,
+  "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
-  "type": "module",
   "scripts": {
     "build": "tsc",
-    "test": "node --test dist/**/*.test.js"
-  },
-  "dependencies": {
-    "@orchestrator/shared-types": "workspace:*",
-    "@orchestrator/adapter-runtime": "workspace:*"
+    "test": "node --test dist/*.test.js"
   },
   "devDependencies": {
     "@types/node": "^20.14.0",

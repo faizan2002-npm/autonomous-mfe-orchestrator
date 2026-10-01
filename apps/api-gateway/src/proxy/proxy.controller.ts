@@ -1,64 +1,47 @@
-import { getServiceEndpoints } from '@orchestrator/config';
-import { Controller, All, Req, Res, Logger } from '@nestjs/common';
+import {
+  Inject,
+  Controller,
+  All,
+  Req,
+  Res,
+  NotFoundException,
+} from '@nestjs/common';
 import type { FastifyRequest, FastifyReply } from 'fastify';
-import { ObservationService } from '../observation/observation.service.js';
-import { CanaryService } from '../canary/canary.service.js';
-
-const SERVICES = getServiceEndpoints();
+import { ProxyService } from './proxy.service.js';
 
 @Controller()
 export class ProxyController {
-  private readonly logger = new Logger(ProxyController.name);
-
   constructor(
-    private readonly observationService: ObservationService,
-    private readonly canaryService: CanaryService
+    @Inject(ProxyService) private readonly proxyService: ProxyService,
   ) {}
 
   @All('api/v1/:service/*')
   async handleProxy(@Req() req: FastifyRequest, @Res() res: FastifyReply) {
-    const params = req.params as { service: string; '*': string };
-    const { service } = params;
-    const subPath = params['*'] || '';
-    const targetHost = SERVICES[service];
-
-    if (!targetHost) {
-      return res.status(404).send({ error: `Service '${service}' not registered in Gateway.` });
-    }
-
-    const targetUrl = `${targetHost}/api/v1/${subPath}`;
-
+    const { service, '*': subPath = '' } = req.params as {
+      service: string;
+      '*': string;
+    };
+    const queryStart = req.url.indexOf('?');
+    const query = queryStart === -1 ? '' : req.url.slice(queryStart);
     try {
-      const upstreamRes = await fetch(targetUrl, {
+      const isCanary =
+        req.headers['x-mfe-canary'] === 'true' || Math.random() < 0.1;
+      const result = await this.proxyService.forward({
+        service,
+        subPath,
         method: req.method,
-        headers: { 'content-type': 'application/json' },
+        query,
+        body: req.body,
+        isCanary,
       });
-
-      const rawData = await upstreamRes.json();
-
-      // Async observation telemetry
-      this.observationService
-        .observe({
-          serviceName: service,
-          endpointPath: `/api/v1/${subPath}`,
-          httpMethod: req.method,
-          observedPayload: rawData,
-        })
-        .catch((err) => this.logger.error(`Observation error: ${(err as Error).message}`));
-
-      // Canary evaluation and runtime patching
-      const isCanary = req.headers['x-mfe-canary'] === 'true' || Math.random() < 0.1;
-      const { payload, isPatched } = this.canaryService.applyPatchIfActive(service, rawData, isCanary);
-
-      if (isPatched) {
-        res.header('x-orchestrator-healed', 'true');
-      }
-
-      return res.status(upstreamRes.status).send(payload);
-    } catch (err: unknown) {
+      if (result.isPatched) res.header('x-orchestrator-healed', 'true');
+      return res.status(result.status).send(result.payload);
+    } catch (error: unknown) {
+      if (error instanceof NotFoundException)
+        return res.status(404).send({ error: error.message });
       return res.status(502).send({
         error: `Bad Gateway forwarding to ${service}`,
-        details: (err as Error).message,
+        details: String(error),
       });
     }
   }
