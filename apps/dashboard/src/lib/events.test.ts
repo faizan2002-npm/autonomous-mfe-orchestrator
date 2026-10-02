@@ -16,7 +16,7 @@ const contract = {
 function invalidatedKeys(event: StreamedEvent) {
   const queries = new QueryClient();
   const spy = vi.spyOn(queries, 'invalidateQueries');
-  invalidateFor(event, queries);
+  invalidateFor(event, queries, 'acme');
   return spy.mock.calls.map(([filters]) => JSON.stringify(filters?.queryKey));
 }
 
@@ -30,7 +30,13 @@ test('patch events refresh the patch, lists, stats and audits', () => {
     canaryPercent: 100,
   });
   expect(keys).toEqual(
-    expect.arrayContaining(['["stats"]', '["patches"]', '["patch","p1"]', '["audits"]', '["drift-events"]']),
+    expect.arrayContaining([
+      '["org","acme","stats"]',
+      '["org","acme","patches"]',
+      '["org","acme","patch","p1"]',
+      '["org","acme","audits"]',
+      '["org","acme","drift-events"]',
+    ]),
   );
 });
 
@@ -46,5 +52,9 @@ test('drift events refresh stats, services and drift lists only', () => {
     coefficient: 0.73,
     isBreaking: true,
   });
-  expect(keys.sort()).toEqual(['["drift-events"]', '["services"]', '["stats"]']);
+  expect(keys.sort()).toEqual([
+    '["org","acme","drift-events"]',
+    '["org","acme","services"]',
+    '["org","acme","stats"]',
+  ]);
 });

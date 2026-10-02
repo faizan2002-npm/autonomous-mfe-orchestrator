@@ -11,6 +11,9 @@ export function RequireAuth() {
         <Loader2 className="size-5 animate-spin" />
       </div>
     );
-  if (!session) return <Navigate to="/login" replace state={{ from: location.pathname }} />;
+  if (!session) {
+    const next = `${location.pathname}${location.search}`;
+    return <Navigate to={`/login?next=${encodeURIComponent(next)}`} replace />;
+  }
   return <Outlet />;
 }

@@ -9,7 +9,8 @@ import { ContractLabel, EmptyState, ErrorState, LoadingRows, PageHeader } from '
 import { StatusBadge } from '@/components/StatusBadge';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
-import { api, keys } from '@/lib/api';
+import { keys } from '@/lib/api';
+import { useOrg, useOrgPath } from '@/lib/org';
 import { percent, relativeTime } from '@/lib/format';
 
 function Kpi({ label, value, hint, icon }: { label: string; value: ReactNode; hint: ReactNode; icon: ReactNode }) {
@@ -44,10 +45,12 @@ function driftPerHour(events: DriftEventView[]) {
 }
 
 export function OverviewPage() {
-  const stats = useQuery({ queryKey: keys.stats, queryFn: api.stats });
-  const services = useQuery({ queryKey: keys.services, queryFn: api.services });
-  const drift = useQuery({ queryKey: keys.driftEvents({ limit: 100 }), queryFn: () => api.driftEvents({ limit: 100 }) });
-  const canary = useQuery({ queryKey: keys.patches({ status: 'CANARY' }), queryFn: () => api.patches({ status: 'CANARY' }) });
+  const { slug, api } = useOrg();
+  const p = useOrgPath();
+  const stats = useQuery({ queryKey: keys.stats(slug), queryFn: api.stats });
+  const services = useQuery({ queryKey: keys.services(slug), queryFn: api.services });
+  const drift = useQuery({ queryKey: keys.driftEvents(slug, { limit: 100 }), queryFn: () => api.driftEvents({ limit: 100 }) });
+  const canary = useQuery({ queryKey: keys.patches(slug, { status: 'CANARY' }), queryFn: () => api.patches({ status: 'CANARY' }) });
 
   const totalServices = stats.data ? Object.values(stats.data.services).reduce((a, b) => a + b, 0) : 0;
 
@@ -159,7 +162,7 @@ export function OverviewPage() {
                 {services.data.map((service) => (
                   <li key={service.id}>
                     <Link
-                      to={`/services/${encodeURIComponent(service.serviceName)}`}
+                      to={p(`/services/${encodeURIComponent(service.serviceName)}`)}
                       className="flex items-center justify-between gap-4 py-3 hover:opacity-80"
                     >
                       <div className="min-w-0">
@@ -194,7 +197,7 @@ export function OverviewPage() {
               <ul className="divide-y">
                 {canary.data.map((patch) => (
                   <li key={patch.id}>
-                    <Link to={`/patches/${patch.id}`} className="flex items-center justify-between gap-4 py-3 hover:opacity-80">
+                    <Link to={p(`/patches/${patch.id}`)} className="flex items-center justify-between gap-4 py-3 hover:opacity-80">
                       <div className="min-w-0">
                         <ContractLabel contract={patch.contract} />
                         <p className="mt-1 text-xs text-muted-foreground">

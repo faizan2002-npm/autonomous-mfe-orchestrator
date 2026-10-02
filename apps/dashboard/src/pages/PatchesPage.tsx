@@ -31,7 +31,8 @@ import { Label } from '@/components/ui/label';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Textarea } from '@/components/ui/textarea';
-import { api, keys } from '@/lib/api';
+import { keys } from '@/lib/api';
+import { useOrg, useOrgPath } from '@/lib/org';
 import { absoluteTime, percent, relativeTime } from '@/lib/format';
 import { cn } from '@/lib/utils';
 
@@ -61,10 +62,12 @@ function GeneratorBadge({ generator }: { generator: PatchDetail['generator'] }) 
 }
 
 export function PatchesPage() {
+  const { slug, api } = useOrg();
+  const p = useOrgPath();
   const [params, setParams] = useSearchParams();
   const tab = (params.get('status') as PatchStatus | 'ALL' | null) ?? 'CANARY';
   const status = tab === 'ALL' ? undefined : tab;
-  const patches = useQuery({ queryKey: keys.patches({ status }), queryFn: () => api.patches({ status }) });
+  const patches = useQuery({ queryKey: keys.patches(slug, { status }), queryFn: () => api.patches({ status }) });
 
   return (
     <>
@@ -99,7 +102,7 @@ export function PatchesPage() {
               {patches.data.map((patch) => (
                 <TableRow key={patch.id}>
                   <TableCell className="max-w-72 pl-6">
-                    <Link to={`/patches/${patch.id}`} className="hover:underline">
+                    <Link to={p(`/patches/${patch.id}`)} className="hover:underline">
                       <ContractLabel contract={patch.contract} />
                     </Link>
                   </TableCell>
@@ -129,6 +132,7 @@ function DecisionDialog({
   kind: DecisionKind | null;
   onClose: () => void;
 }) {
+  const { api } = useOrg();
   const queries = useQueryClient();
   const [notes, setNotes] = useState('');
   const decide = useMutation({
@@ -255,8 +259,10 @@ function AuditList({ audits }: { audits: AuditView[] }) {
 }
 
 export function PatchDetailPage() {
+  const { slug, api } = useOrg();
+  const p = useOrgPath();
   const { id = '' } = useParams();
-  const patch = useQuery({ queryKey: keys.patch(id), queryFn: () => api.patch(id) });
+  const patch = useQuery({ queryKey: keys.patch(slug, id), queryFn: () => api.patch(id) });
   const preview = useMutation({ mutationFn: () => api.previewPatch(id) });
   const [decision, setDecision] = useState<DecisionKind | null>(null);
 
@@ -268,7 +274,7 @@ export function PatchDetailPage() {
   return (
     <>
       <Button asChild variant="ghost" size="sm" className="-ml-2 mb-2">
-        <Link to="/patches"><ChevronLeft />Patches</Link>
+        <Link to={p('/patches')}><ChevronLeft />Patches</Link>
       </Button>
       <PageHeader
         title="Patch"
@@ -349,7 +355,7 @@ export function PatchDetailPage() {
             <CardHeader>
               <CardTitle>Drift this patch repairs</CardTitle>
               <CardDescription>
-                <Link to={`/drift/${data.driftEvent.id}`} className="hover:underline">Open drift event →</Link>
+                <Link to={p(`/drift/${data.driftEvent.id}`)} className="hover:underline">Open drift event →</Link>
               </CardDescription>
             </CardHeader>
             <CardContent>

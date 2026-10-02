@@ -9,13 +9,15 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { api, keys } from '@/lib/api';
+import { keys } from '@/lib/api';
+import { useOrg, useOrgPath } from '@/lib/org';
 import { absoluteTime, humanize, relativeTime } from '@/lib/format';
 import { cn } from '@/lib/utils';
 
 const ALL = 'all';
 
 export function DriftTable({ events }: { events: DriftEventView[] }) {
+  const p = useOrgPath();
   return (
     <Table>
       <TableHeader>
@@ -32,7 +34,7 @@ export function DriftTable({ events }: { events: DriftEventView[] }) {
         {events.map((event) => (
           <TableRow key={event.id}>
             <TableCell className="max-w-72 pl-6">
-              <Link to={`/drift/${event.id}`} className="hover:underline">
+              <Link to={p(`/drift/${event.id}`)} className="hover:underline">
                 <ContractLabel contract={event.contract} />
               </Link>
             </TableCell>
@@ -41,7 +43,7 @@ export function DriftTable({ events }: { events: DriftEventView[] }) {
             <TableCell className="text-right font-mono tabular-nums">{event.driftCoefficient.toFixed(2)}</TableCell>
             <TableCell className="hidden lg:table-cell">
               {event.patchId && event.patchStatus ? (
-                <Link to={`/patches/${event.patchId}`}><StatusBadge value={event.patchStatus} /></Link>
+                <Link to={p(`/patches/${event.patchId}`)}><StatusBadge value={event.patchStatus} /></Link>
               ) : (
                 <span className="text-xs text-muted-foreground">{event.isBreaking ? 'Pending' : 'Not needed'}</span>
               )}
@@ -55,12 +57,13 @@ export function DriftTable({ events }: { events: DriftEventView[] }) {
 }
 
 export function DriftPage() {
+  const { slug, api } = useOrg();
   const [params, setParams] = useSearchParams();
   const service = params.get('service') ?? undefined;
   const type = (params.get('type') as DriftType | null) ?? undefined;
-  const services = useQuery({ queryKey: keys.services, queryFn: api.services });
+  const services = useQuery({ queryKey: keys.services(slug), queryFn: api.services });
   const drift = useInfiniteQuery({
-    queryKey: keys.driftEvents({ service, type }),
+    queryKey: keys.driftEvents(slug, { service, type }),
     queryFn: ({ pageParam }) => api.driftEvents({ service, type, cursor: pageParam, limit: 25 }),
     initialPageParam: undefined as string | undefined,
     getNextPageParam: (page) => page.nextCursor ?? undefined,
@@ -144,13 +147,15 @@ function CoefficientGauge({ value }: { value: number }) {
 }
 
 export function DriftDetailPage() {
+  const { slug, api } = useOrg();
+  const p = useOrgPath();
   const { id = '' } = useParams();
-  const event = useQuery({ queryKey: keys.driftEvent(id), queryFn: () => api.driftEvent(id) });
+  const event = useQuery({ queryKey: keys.driftEvent(slug, id), queryFn: () => api.driftEvent(id) });
 
   return (
     <>
       <Button asChild variant="ghost" size="sm" className="-ml-2 mb-2">
-        <Link to="/drift"><ChevronLeft />Drift events</Link>
+        <Link to={p('/drift')}><ChevronLeft />Drift events</Link>
       </Button>
       {event.error ? (
         <ErrorState error={event.error} />
@@ -166,7 +171,7 @@ export function DriftDetailPage() {
                 <StatusBadge value={event.data.severity} />
                 {event.data.patchId && (
                   <Button asChild size="sm">
-                    <Link to={`/patches/${event.data.patchId}`}>View patch</Link>
+                    <Link to={p(`/patches/${event.data.patchId}`)}>View patch</Link>
                   </Button>
                 )}
               </>

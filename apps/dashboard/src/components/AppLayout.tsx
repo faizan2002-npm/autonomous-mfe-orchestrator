@@ -1,6 +1,13 @@
 import {
   Activity,
+  Building2,
+  Check,
+  ChevronsUpDown,
   ExternalLink,
+  History,
+  KeyRound,
+  Plus,
+  Users,
   FlaskConical,
   GitPullRequestArrow,
   LayoutDashboard,
@@ -11,11 +18,11 @@ import {
   ScrollText,
   Server,
   Settings,
-  ShieldCheck,
   Sun,
 } from 'lucide-react';
 import { Suspense, useState } from 'react';
-import { NavLink, Outlet } from 'react-router';
+import { Link, NavLink, Outlet } from 'react-router';
+import type { OrgRole } from '@orchestrator/shared-types';
 import { Button } from '@/components/ui/button';
 import {
   DropdownMenu,
@@ -30,41 +37,77 @@ import { useAuth } from '@/auth/AuthProvider';
 import { LoadingRows } from '@/components/common';
 import { env } from '@/lib/env';
 import { useLiveEvents, type LiveStatus } from '@/lib/events';
+import { humanize } from '@/lib/format';
+import { useMyOrgs, useOrg, useOrgPath } from '@/lib/org';
 import { supabase } from '@/lib/supabase';
 import { useTheme } from '@/lib/theme';
 import { cn } from '@/lib/utils';
 
-const NAV = [
-  { to: '/', label: 'Overview', icon: LayoutDashboard, end: true },
+const NAV: Array<{ to: string; label: string; icon: typeof Activity; end?: boolean; role?: OrgRole }> = [
+  { to: '', label: 'Overview', icon: LayoutDashboard, end: true },
   { to: '/services', label: 'Services', icon: Server },
+  { to: '/consumers', label: 'Consumers & keys', icon: KeyRound },
   { to: '/drift', label: 'Drift Events', icon: Activity },
   { to: '/patches', label: 'Patches', icon: GitPullRequestArrow },
   { to: '/audits', label: 'Audit Log', icon: ScrollText },
   { to: '/demo', label: 'Demo Lab', icon: FlaskConical },
+  { to: '/members', label: 'Members', icon: Users },
+  { to: '/activity', label: 'Activity', icon: History, role: 'admin' },
   { to: '/settings', label: 'Settings', icon: Settings },
 ];
 
-function Brand() {
+function OrgSwitcher() {
+  const { org } = useOrg();
+  const orgs = useMyOrgs();
   return (
-    <div className="flex items-center gap-2.5 px-3 py-4">
-      <div className="grid size-8 place-items-center rounded-lg bg-primary text-primary-foreground">
-        <ShieldCheck className="size-4.5" />
-      </div>
-      <div className="leading-tight">
-        <p className="text-sm font-semibold">MFE Orchestrator</p>
-        <p className="text-xs text-muted-foreground">Governance</p>
-      </div>
-    </div>
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <button
+          type="button"
+          className="mx-2 my-3 flex w-[calc(100%-1rem)] items-center gap-2.5 rounded-lg px-2 py-2 text-left hover:bg-sidebar-accent"
+        >
+          <div className="grid size-8 shrink-0 place-items-center rounded-lg bg-primary text-sm font-semibold text-primary-foreground">
+            {org.name[0]?.toUpperCase()}
+          </div>
+          <div className="min-w-0 flex-1 leading-tight">
+            <p className="truncate text-sm font-semibold">{org.name}</p>
+            <p className="text-xs text-muted-foreground">{humanize(org.role)}</p>
+          </div>
+          <ChevronsUpDown className="size-4 text-muted-foreground" />
+        </button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="start" className="w-60">
+        <DropdownMenuLabel className="text-xs text-muted-foreground">Organizations</DropdownMenuLabel>
+        {orgs.data?.map((candidate) => (
+          <DropdownMenuItem key={candidate.id} asChild>
+            <Link to={`/o/${candidate.slug}`}>
+              <Building2 />
+              <span className="flex-1 truncate">{candidate.name}</span>
+              {candidate.slug === org.slug && <Check />}
+            </Link>
+          </DropdownMenuItem>
+        ))}
+        <DropdownMenuSeparator />
+        <DropdownMenuItem asChild>
+          <Link to="/onboarding">
+            <Plus />
+            Create organization
+          </Link>
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 }
 
 function Nav({ onNavigate }: { onNavigate?: () => void }) {
+  const p = useOrgPath();
+  const { can } = useOrg();
   return (
     <nav className="flex flex-col gap-0.5 px-2">
-      {NAV.map(({ to, label, icon: Icon, end }) => (
+      {NAV.filter((item) => !item.role || can(item.role)).map(({ to, label, icon: Icon, end }) => (
         <NavLink
-          key={to}
-          to={to}
+          key={label}
+          to={p(to)}
           end={end}
           onClick={onNavigate}
           className={({ isActive }) =>
@@ -152,7 +195,7 @@ export function AppLayout() {
   return (
     <div className="flex min-h-svh">
       <aside className="sticky top-0 hidden h-svh w-60 shrink-0 flex-col border-r bg-sidebar md:flex">
-        <Brand />
+        <OrgSwitcher />
         <Nav />
       </aside>
       <div className="flex min-w-0 flex-1 flex-col">
@@ -165,7 +208,7 @@ export function AppLayout() {
             </SheetTrigger>
             <SheetContent side="left" className="w-64 bg-sidebar p-0">
               <SheetTitle className="sr-only">Navigation</SheetTitle>
-              <Brand />
+              <OrgSwitcher />
               <Nav onNavigate={() => setMenuOpen(false)} />
             </SheetContent>
           </Sheet>

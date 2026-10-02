@@ -9,6 +9,7 @@ A gateway that sits between micro-frontends and their backend services. It learn
 ## Table of Contents
 
 - [How It Works](#how-it-works)
+- [Organizations, Consumers and Keys](#organizations-consumers-and-keys)
 - [Tech Stack](#tech-stack)
 - [Quick Start](#quick-start)
 - [Frontend](#frontend)
@@ -22,16 +23,47 @@ A gateway that sits between micro-frontends and their backend services. It learn
 
 ## How It Works
 
-Every request to `/api/v1/:service/*` flows through the gateway. Successful JSON responses feed the healing loop, which runs per **contract** (service + HTTP method + normalized path, so `/users/1` and `/users/2` share one contract).
+Applications call their upstream services through the gateway at `/api/v1/:service/*`, identified by a consumer API key. Successful JSON responses feed the healing loop, which runs per **contract**: organization + consumer + service + HTTP method + normalized path. `/users/1` and `/users/2` share one contract, and two consumers of the same endpoint each have their own.
 
-1. **Observe.** The response is flattened into `path:type` tokens (`profile.bio:string`). The first response seen for a contract becomes its baseline, stored in Postgres and cached in Redis.
-2. **Detect.** Each response is scored with the drift coefficient `Dc = 1 − |Se ∩ So| / |Se ∪ So|` (one minus the Jaccard similarity of expected and observed tokens). Above `DRIFT_SIMILARITY_THRESHOLD`, a drift event is recorded and classified (`FIELD_RENAMED`, `FIELD_DELETED`, `TYPE_CHANGED`, `FIELD_ADDED`). Missing fields or type changes are *breaking*. Each distinct drifted shape is recorded once, not on every request.
-3. **Generate.** For breaking drift, Google Gemini writes a pure JavaScript adapter. Without an API key, or if Gemini is unavailable, a deterministic fallback maps renamed fields by name, including nested ones (`avatar_url` → `profile.avatarUrl`).
+1. **Observe.** The response is flattened into `path:type` tokens (`profile.bio:string`). A consumer's first response for an endpoint becomes its baseline, stored in Postgres and cached in Redis.
+2. **Detect.** Each response is scored with the drift coefficient `Dc = 1 − |Se ∩ So| / |Se ∪ So|` (one minus the Jaccard similarity of expected and observed tokens). If the consumer has **pinned** the fields it depends on, only those count. Above the org's drift threshold, a drift event is recorded and classified (`FIELD_RENAMED`, `FIELD_DELETED`, `TYPE_CHANGED`, `FIELD_ADDED`). Missing fields or type changes are *breaking*. Each distinct drifted shape is recorded once, not on every request.
+3. **Generate.** For breaking drift, Google Gemini (the org's own key, or the platform's) writes a pure JavaScript adapter. Without a key, or if Gemini is unavailable, a deterministic fallback maps renamed fields by name, including nested ones (`avatar_url` → `profile.avatarUrl`).
 4. **Verify.** The adapter must parse as a single function, pass an AST check that blocks `eval`, `Function`, network and prototype access, run in a VM sandbox within 50 ms, and actually restore the expected contract. Adapters that fail are stored as *rejected* with the reason, and never reach traffic.
-5. **Canary.** The verified patch serves `CANARY_TRAFFIC_PERCENTAGE` of requests. Patched responses carry `x-orchestrator-healed: true`, and per-patch traffic is counted.
-6. **Govern.** A signed-in reviewer promotes the patch to 100% or rolls it back from the dashboard. Every decision is written to an audit trail under the reviewer's verified identity.
+5. **Canary.** The verified patch serves the org's canary share of that consumer's requests. Patched responses carry `x-orchestrator-healed: true`, and per-patch traffic is counted.
+6. **Govern.** A reviewer promotes the patch to 100% or rolls it back from the dashboard. Every decision is audited under the reviewer's verified identity.
 
 > Node's `vm` module limits what an adapter can reach but is not a security boundary for hostile code. The AST check and sandbox are defence in depth, not isolation.
+
+## Organizations, Consumers and Keys
+
+**Organizations** are fully isolated tenants. Anyone can sign up and create one (they become its **owner**) and invite others by email:
+
+| Role | Can |
+|---|---|
+| Owner | Everything, including managing owners and admins. An org always keeps at least one owner. |
+| Admin | Services, consumers, keys, members (reviewers and viewers) and settings |
+| Reviewer | Preview, promote and roll back patches; pin contract fields; test services |
+| Viewer | Read-only |
+
+Non-members get `404` for an organization, so its existence never leaks.
+
+**Services** are the upstream APIs an organization registers (name, base URL, optional health path, timeout and encrypted upstream headers such as service credentials). Base URLs that resolve to private, loopback, link-local or cloud-metadata addresses are refused, and the check is repeated on every connection (DNS rebinding cannot bypass it). `ALLOW_PRIVATE_UPSTREAMS=true` lifts this for local development.
+
+**Consumers** are the applications calling those services, either frontend or backend. Each consumer is granted the services it may call and gets its own contracts. That lets a web app and a billing worker reading the same API heal independently, and a consumer can pin the fields it actually uses so irrelevant changes are ignored.
+
+**API keys** identify a consumer in the `x-orchestrator-key` header:
+
+| Key | Prefix | Where | Restriction |
+|---|---|---|---|
+| Publishable | `pk_` | Browser code (frontend consumers) | Only accepted from its allowed origins |
+| Secret | `sk_` | Servers (backend-to-backend) | Keep in environment variables |
+
+Keys are shown once, stored only as peppered HMACs, revocable instantly and rate-limited per key (`RATE_LIMIT_PER_MINUTE`). The gateway forwards a safe set of client headers (`authorization`, `accept`, tracing headers, `idempotency-key`) and the service's own configured headers, which take precedence.
+
+```bash
+# A backend calling order-service through the gateway
+curl -H "x-orchestrator-key: $ORCHESTRATOR_KEY" http://localhost:4000/api/v1/order-service/orders/9821
+```
 
 ## Tech Stack
 
@@ -39,8 +71,9 @@ Every request to `/api/v1/:service/*` flows through the gateway. Successful JSON
 |---|---|
 | Gateway | NestJS 10 on Fastify, TypeScript (ESM), Server-Sent Events |
 | Database | Supabase Postgres via Drizzle ORM (`postgres.js`), migrations with Drizzle Kit |
-| Auth | Supabase Auth; the gateway verifies access tokens against the project's JWKS (`jose`) |
-| Cache | Upstash Redis (`ioredis`, TLS) |
+| Auth | Supabase Auth (sign-up, sign-in, password reset); the gateway verifies access tokens against the project's JWKS (`jose`) |
+| Cache | Upstash Redis (`ioredis`, TLS): baselines, key lookups, rate limits, canary counters |
+| Secrets | AES-256-GCM at rest, HMAC-SHA256 key hashing (`packages/crypto`) |
 | Patch generation | Google Gemini API (default `gemini-3.5-flash-lite`) with a deterministic fallback |
 | Adapter safety | `@babel/parser` AST validation, Node `vm` sandbox |
 | Dashboard | React 19, Vite, Tailwind CSS + shadcn/ui, TanStack Query, React Router, Recharts |
@@ -70,20 +103,26 @@ Fill in `.env`:
 | `REDIS_URL` | Upstash → database → **Connect** → *TCP*, the `rediss://` URL |
 | `VITE_SUPABASE_URL` | `https://<SUPABASE_PROJECT_REF>.supabase.co` |
 | `VITE_SUPABASE_PUBLISHABLE_KEY` | Supabase → Project Settings → **API Keys** → *Publishable key* (safe to expose) |
+| `ENCRYPTION_KEY`, `KEY_PEPPER` | Generate each with `openssl rand -base64 32`. Never change them once data exists. |
+| `ALLOW_PRIVATE_UPSTREAMS` | `true` for local development (the demo services run on localhost) |
 | `GEMINI_API_KEY` | Google AI Studio → **Get API key** (optional) |
 
 Use the pooler host rather than the direct `db.<ref>.supabase.co` host, which only works over IPv6 on free projects.
 
 ```bash
 # 3. Create the schema in Supabase
+pnpm build
 pnpm db:migrate
 
-# 4. Build the shared packages once, then start everything in watch mode
-pnpm build
+# 4. Optional: a ready-made Demo Organization with services, consumers and keys,
+#    plus an owner invitation for you (open the printed link after signing up)
+pnpm db:seed --write-env --owner you@example.com
+
+# 5. Start everything in watch mode
 pnpm dev
 ```
 
-**5. Create a reviewer account:** Supabase → Authentication → Users → **Add user** (email + password). The dashboard has no self-signup; only accounts you create can sign in.
+Open http://localhost:5100, **create an account** and either accept your invitation or create an organization in the onboarding wizard.
 
 | App | URL |
 |---|---|
@@ -93,41 +132,52 @@ pnpm dev
 | API gateway | http://localhost:4000 |
 | User / order services | http://localhost:3001 · http://localhost:3002 |
 
+> Supabase's built-in email service is heavily rate limited. For real sign-ups, configure custom SMTP under Authentication → Emails, or turn off email confirmation while developing.
+>
 > macOS can reserve port 5000 for AirPlay Receiver (System Settings → General → AirDrop & Handoff). Turn it off if the shell fails to start.
 
 ## Frontend
 
 ### Governance dashboard (`apps/dashboard`)
 
-A signed-in console for reviewers. Data comes from the gateway's governance API and refreshes live over Server-Sent Events.
+Sign up, sign in and reset passwords through Supabase Auth. New users go through an **onboarding wizard**:
+1. Create the organization.
+2. Register the first service and test the connection.
+3. Create a consumer and its key, shown once with browser/Node/curl snippets.
+4. Invite reviewers.
+
+An **org switcher** moves between organizations. Everything lives under `/o/:orgSlug` and updates live over Server-Sent Events.
 
 | Page | What it shows |
 |---|---|
 | **Overview** | Health and drift KPIs, drift events per hour, live activity feed, service health, patches awaiting promotion |
-| **Services** | Each upstream service, its learned contract baselines (schema tokens) and recent drift |
+| **Services** | Registered upstreams with health; detail view with configuration (write-only upstream headers), connection test, contracts per consumer with a field-pinning editor, and recent drift |
+| **Consumers & keys** | Frontend and backend consumers, the services each may call, keys (issue once, revoke, last used, allowed origins) |
 | **Drift Events** | Filterable history; detail view with the drift coefficient and a field-by-field schema diff |
-| **Patches** | Canary / active / rejected / rolled back / superseded; detail view with the adapter code, generator (Gemini or fallback), sandbox before/after preview, canary traffic, lifecycle and audit trail, plus **Promote** and **Roll back** |
-| **Audit Log** | Every automatic and human decision with reviewer and notes |
-| **Demo Lab** | Chaos switches for the mock services, a request sender with canary routing, and a live pipeline view (drift → patch → canary → promotion) |
-| **Settings** | Read-only gateway configuration and the signed-in user |
+| **Patches** | Canary / active / rejected / rolled back / superseded; detail view with the adapter code, generator, sandbox preview, canary traffic, lifecycle and audit trail, plus **Promote** and **Roll back** |
+| **Audit Log** | Every automatic and human patch decision with reviewer and notes |
+| **Demo Lab** | Chaos switches, a request sender (with a consumer key and canary routing), and a live pipeline view |
+| **Members** | Members and roles, invitations with copyable single-use links |
+| **Activity** | Administrative trail: members, keys, services, settings (admins) |
+| **Settings** | Per-org drift threshold, canary share, Gemini model and bring-your-own Gemini key (encrypted, never shown back) |
+
+The UI hides actions your role can't perform; the API enforces the same rules.
 
 ### Micro-frontend shell (`apps/mfe-shell`, `apps/mfe-user`, `apps/mfe-order`)
 
-The shell is a Module Federation **host** that loads two independently served **remotes** at runtime from their `remoteEntry.js`: `ProfileCard` (user-service) and `OrderCard` (order-service). Each card is written strictly against the contract its backend had when it was built, so upstream drift makes it genuinely crash. The shell isolates each crash in its own error boundary.
+The shell is a Module Federation **host** that loads two independently served **remotes** at runtime from their `remoteEntry.js`: `ProfileCard` (user-service) and `OrderCard` (order-service). They call the gateway with the `acme-portal` publishable key (`VITE_MFE_CONSUMER_KEY`, written by `pnpm db:seed --write-env`). Each card is written strictly against the contract its backend had when it was built, so upstream drift makes it genuinely crash. The shell isolates each crash in its own error boundary.
 
 Header controls:
 - **Canary / Sampled / Baseline:** which traffic group the shell's requests join.
 - **Auto-refresh:** re-fetches every 3 s, so you can watch a card heal.
 
-The shell owns the Tailwind design system and scans the remotes' sources, so the remotes ship no CSS of their own.
-
 ## Demo: Watch It Heal
 
-With `pnpm dev` running, open the dashboard's **Demo Lab** and the shell side by side.
+After `pnpm db:seed --write-env --owner you@example.com` and `pnpm dev`, accept the invitation, open **Demo Lab** in the Demo Organization and the shell side by side.
 
 1. In the shell, choose **Baseline**. Both cards render.
 2. In Demo Lab, switch **user-service** to its drifted schema. The profile card crashes (`firstName` became `first_name`, `profile` was flattened).
-3. Send a request with **Force canary**. The pipeline shows drift detected → patch generated → canary deployed.
+3. Send a request with **Force canary** (the demo key is prefilled). The pipeline shows drift detected → patch generated → canary deployed.
 4. In the shell, choose **Canary**. The profile card renders again, marked *Self-healed by gateway*. On **Baseline** it still crashes: only canary traffic is patched.
 5. Open the patch, run the sandbox preview, and click **Promote**. Baseline traffic heals too, and the audit log records your email.
 6. Repeat with **order-service**. Its drift also restructures the line-item array, which the rule-based fallback cannot repair, so this one needs Gemini. Without a key, the patch appears under *Rejected* with the reason.
@@ -136,7 +186,7 @@ Rolling a patch back makes the gateway forget that drift, so the next drifted re
 
 ## Configuration
 
-All configuration is validated once at startup. An invalid or missing value stops the gateway with a message naming the variable.
+All configuration is validated once at startup. An invalid or missing value stops the gateway with a message naming the variable. Drift threshold, canary share and Gemini settings below are platform defaults; each organization can override them in **Settings**.
 
 | Variable | Default | Purpose |
 |---|---|---|
@@ -144,63 +194,69 @@ All configuration is validated once at startup. An invalid or missing value stop
 | `SUPABASE_DB_NAME` | `postgres` | Database name |
 | `DATABASE_URL` / `DIRECT_URL` | *built from the keys above* | Optional full connection strings that override the app / migration URL |
 | `SUPABASE_URL` | `https://<SUPABASE_PROJECT_REF>.supabase.co` | Supabase Auth issuer whose signing keys the gateway trusts |
-| `ALLOWED_ORIGINS` | the four local frontend origins | Browser origins allowed to call the gateway (CORS) |
-| `REDIS_URL` | *required* | Upstash Redis (`rediss://`) for caches and canary counters |
-| `GEMINI_API_KEY` | *unset* | Gemini API key; when unset, only the deterministic fallback generates adapters |
-| `GEMINI_MODEL` | `gemini-3.5-flash-lite` | Gemini model used to generate adapters |
-| `DRIFT_SIMILARITY_THRESHOLD` | `0.15` | Drift coefficient (0–1) above which a response counts as drifted |
-| `CANARY_TRAFFIC_PERCENTAGE` | `10` | Share of traffic (0–100) a new patch receives before promotion |
+| `ENCRYPTION_KEY` | *required* | 32-byte base64 key for secrets at rest (service headers, BYO Gemini keys) |
+| `KEY_PEPPER` | *required* | 32-byte base64 pepper for API-key and invitation-token hashes |
+| `ALLOW_PRIVATE_UPSTREAMS` | `false` | Allow service URLs on private/loopback addresses (local development only) |
+| `APP_URL` | `http://localhost:5100` | Dashboard URL used in invitation links |
+| `RATE_LIMIT_PER_MINUTE` | `600` | Proxied requests per consumer key per minute |
+| `ALLOWED_ORIGINS` | the four local frontend origins | Browser origins allowed to call the management API (consumer traffic is governed by key origins) |
+| `REDIS_URL` | *required* | Upstash Redis (`rediss://`) |
+| `GEMINI_API_KEY` | *unset* | Platform Gemini key; when unset (and the org has none), only the fallback generates adapters |
+| `GEMINI_MODEL` | `gemini-3.5-flash-lite` | Default Gemini model |
+| `DRIFT_SIMILARITY_THRESHOLD` | `0.15` | Default drift coefficient (0–1) above which a response counts as drifted |
+| `CANARY_TRAFFIC_PERCENTAGE` | `10` | Default share of traffic (0–100) a new patch receives before promotion |
 | `GATEWAY_PORT` | `4000` | Gateway port |
 | `USER_SERVICE_PORT` / `ORDER_SERVICE_PORT` | `3001` / `3002` | Demo service ports |
-| `USER_SERVICE_URL` / `ORDER_SERVICE_URL` | `http://localhost:3001` / `:3002` | Upstreams the gateway proxies to |
+| `USER_SERVICE_URL` / `ORDER_SERVICE_URL` | `http://localhost:3001` / `:3002` | Base URLs `pnpm db:seed` registers for the demo services |
 | `VITE_GATEWAY_URL` | `http://localhost:4000` | Gateway URL used by the frontends |
-| `VITE_SUPABASE_URL`, `VITE_SUPABASE_PUBLISHABLE_KEY` | *required for the dashboard* | Supabase Auth for dashboard sign-in |
+| `VITE_SUPABASE_URL`, `VITE_SUPABASE_PUBLISHABLE_KEY` | *required for the dashboard* | Supabase Auth for the dashboard |
+| `VITE_MFE_CONSUMER_KEY` | *from `pnpm db:seed`* | Publishable key the demo shell and Demo Lab use |
+| `REPORT_SERVICE_KEY` | *from `pnpm db:seed`* | Secret key of the demo backend consumer |
 | `VITE_DASHBOARD_URL`, `VITE_SHELL_URL` | local ports | Cross-links between the dashboard and the shell |
 | `VITE_MFE_USER_ENTRY`, `VITE_MFE_ORDER_ENTRY` | `http://localhost:5001/remoteEntry.js`, `:5002` | Where the shell loads each remote from |
 
-Remote Postgres connections use TLS automatically, and prepared statements are disabled on Supabase's transaction pooler (port 6543), which does not support them. All `VITE_*` values are compiled into browser code, so never put secrets in them.
+Remote Postgres connections use TLS automatically, and prepared statements are disabled on Supabase's transaction pooler (port 6543), which does not support them. All `VITE_*` values are compiled into browser code, so only publishable keys belong there.
 
 ## API Reference
 
-### Proxy (public)
+### Consumer traffic (`x-orchestrator-key`)
 
 | Method | Path | Notes |
 |---|---|---|
-| `ANY` | `/api/v1/:service/*` | Forwarded to `<service>/api/v1/*`. Registered services: `user-service`, `order-service` |
+| `ANY` | `/api/v1/:service/*` | Forwarded to the org service's base URL + `/api/v1/*` |
+| `GET` | `/patches/remoteEntry.js?service=&key=pk_…` | Registers the consumer's live adapters for a service on `window.__MFE_ORCHESTRATOR_PATCHES__[service]`, keyed by `"METHOD /path"` |
 
-Send `x-mfe-canary: true` or `false` to force canary routing. Without the header, requests are sampled at `CANARY_TRAFFIC_PERCENTAGE`; promoted patches apply to all traffic. The `x-orchestrator-healed` response header is exposed to browsers.
+Responses: `401` missing/unknown/revoked key, `403` wrong origin or service not granted, `404` service not registered in the key's organization, `429` rate limited. Send `x-mfe-canary: true` or `false` to force canary routing; otherwise requests are sampled at the org's canary share. Promoted patches apply to all traffic.
 
-### Governance (requires `Authorization: Bearer <Supabase access token>`)
-
-| Method | Path | Returns / body |
-|---|---|---|
-| `GET` | `/api/governance/stats` | KPI counts |
-| `GET` | `/api/governance/config` | Public configuration (never secrets) |
-| `GET` | `/api/governance/services`, `/services/:name` | Services, contract baselines, recent drift |
-| `GET` | `/api/governance/drift-events?service=&type=&limit=&cursor=` | Paginated drift history |
-| `GET` | `/api/governance/drift-events/:id` | Drift detail with schema diff and observed payload |
-| `GET` | `/api/governance/patches?status=&service=`, `/patches/:id` | Patches; detail includes adapter, audits and canary traffic |
-| `POST` | `/api/governance/patches/:id/preview` | Runs the adapter on its source payload in the sandbox (read-only) |
-| `POST` | `/api/governance/patches/:id/promote` | `{ "serviceName": "user-service", "notes"?: "..." }` |
-| `POST` | `/api/governance/patches/:id/rollback` | Same as promote |
-| `GET` | `/api/governance/audits?limit=` | Audit trail |
-| `GET` | `/api/governance/events` | Server-Sent Events: `drift.detected`, `patch.generated`, `patch.rejected`, `patch.deployed`, `patch.promoted`, `patch.rolledBack`, `request.proxied` |
-| `GET` | `/api/governance/overview` | Raw recent rows (kept for compatibility) |
-
-Only `CANARY` patches can be promoted and only live (`CANARY` or `ACTIVE`) patches can be rolled back; anything else returns `409`. The reviewer recorded in the audit is taken from the verified token, never from the request body.
-
-### Demo (requires a token)
-
-| Method | Path | Body |
-|---|---|---|
-| `GET` | `/api/demo/services` | – (chaos state of each mock service) |
-| `POST` | `/api/demo/services/:name/chaos` | `{ "mutated": true }` |
-
-### Module Federation patches (public)
+### Account (`Authorization: Bearer <Supabase access token>`)
 
 | Method | Path | Notes |
 |---|---|---|
-| `GET` | `/patches/:serviceName/remoteEntry.js` | Registers the service's live adapters on `window.__MFE_ORCHESTRATOR_PATCHES__[serviceName]`, keyed by `"METHOD /path"` |
+| `GET` / `POST` | `/api/orgs` | Your organizations / create one (`{ name, slug }`; you become owner) |
+| `GET` | `/api/invitations/:token` | Invitation preview (no sign-in needed) |
+| `POST` | `/api/invitations/:token/accept` | Join; the signed-in email must match the invitation |
+
+### Organization (`/api/orgs/:orgSlug`, member role in brackets)
+
+| Method | Path | Notes |
+|---|---|---|
+| `GET` / `PATCH` | `/` | Settings [viewer] / update name, threshold, canary %, Gemini model or key [admin] |
+| `GET`, `PATCH`, `DELETE` | `/members`, `/members/:id` | List [viewer], change role [admin; owners for owner/admin], remove [admin] or leave [self] |
+| `GET`, `POST`, `DELETE` | `/invitations`, `/invitations/:id` | Pending invitations, invite (`{ email, role }`, returns `acceptUrl`), revoke [admin] |
+| `GET` | `/activity` | Administrative trail [admin] |
+| `GET`, `POST`, `PATCH`, `DELETE` | `/services`, `/services/:id` | Service registry [viewer read, admin write] |
+| `POST` | `/services/:id/test` | Connection test [reviewer] |
+| `GET`, `POST`, `PATCH`, `DELETE` | `/consumers`, `/consumers/:id` | Consumers and service grants [viewer read, admin write] |
+| `POST`, `DELETE` | `/consumers/:id/keys`, `/consumers/:id/keys/:keyId` | Issue (`{ type, allowedOrigins? }`, key returned once) / revoke [admin] |
+| `GET` | `/governance/stats`, `/config`, `/services`, `/services/:name`, `/audits` | Read models [viewer] |
+| `GET` | `/governance/drift-events?service=&consumerId=&type=&limit=&cursor=`, `/drift-events/:id` | Drift history and detail [viewer] |
+| `GET` | `/governance/patches?status=&service=&consumerId=`, `/patches/:id` | Patches and detail [viewer] |
+| `PUT` | `/governance/contracts/:id/pins` | `{ required: [...], ignored: [...] }` [reviewer] |
+| `POST` | `/governance/patches/:id/preview`, `/promote`, `/rollback` | Sandbox preview; decisions `{ serviceName, notes? }` [reviewer] |
+| `GET` | `/governance/events` | Server-Sent Events for this organization only [viewer] |
+| `GET`, `POST` | `/demo/services`, `/demo/services/:name/chaos` | Chaos switch of demo upstreams [viewer / reviewer] |
+
+Only `CANARY` patches can be promoted and only live (`CANARY` or `ACTIVE`) patches can be rolled back; anything else returns `409`. Reviewers recorded in audits come from the verified token, never the request body.
 
 ## Architecture
 
@@ -210,7 +266,7 @@ Only `CANARY` patches can be promoted and only live (`CANARY` or `ACTIVE`) patch
 │  ├─ mfe-user remote    :5001 │      │  Supabase Auth sign-in        │
 │  └─ mfe-order remote   :5002 │      │  SSE live updates             │
 └──────────────┬───────────────┘      └───────────────┬───────────────┘
-               │ /api/v1/:service/* (public)           │ /api/governance/*, /api/demo/* (Bearer token)
+               │ /api/v1/:service/* + consumer key     │ /api/orgs/:org/* (Bearer token + role)
                ▼                                       ▼
 ┌──────────────────────────────────────────────────────────────────────┐
 │ API Gateway (NestJS + Fastify)                                 :4000 │
@@ -218,6 +274,7 @@ Only `CANARY` patches can be promoted and only live (`CANARY` or `ACTIVE`) patch
 │  proxy ──► observation ──► healing ──► cognitive (Gemini, verify)    │
 │    │                                      │                          │
 │    └──────────► canary ◄──────────────────┘ ◄── governance ◄── auth  │
+│  orgs · services (SSRF guard) · consumers & keys (rate limit)       │
 │                   │                                                  │
 │  events (rxjs) ◄──┴── every stage publishes; governance streams SSE  │
 └──────┬──────────────────────┬──────────────────────┬─────────────────┘
@@ -234,14 +291,19 @@ Only `CANARY` patches can be promoted and only live (`CANARY` or `ACTIVE`) patch
 └───────────────────────────────────────────┘
 ```
 
-Postgres is the source of truth for live patches. Each gateway instance keeps an in-memory copy for routing and reloads it from the database on startup. Live events are in-process, so with several gateway instances each dashboard sees the events of the instance it is connected to.
+Every row belongs to an organization, and every query is scoped by it. Postgres is the source of truth for live patches. Each gateway instance keeps an in-memory copy for routing and reloads it from the database on startup. Live events are in-process, so with several gateway instances each dashboard sees the events of the instance it is connected to.
 
 ### Repository layout
 
 | Path | Responsibility |
 |---|---|
 | `apps/api-gateway/src/config` | Validated, typed `GatewayConfig` built once at startup |
-| `apps/api-gateway/src/auth` | Supabase JWT verification (JWKS) and the `AuthGuard` |
+| `apps/api-gateway/src/auth` | Supabase JWT verification (JWKS), `AuthGuard`, `OrgGuard` and role requirements |
+| `apps/api-gateway/src/orgs` | Organizations, members, invitations, per-org settings, activity log |
+| `apps/api-gateway/src/services` | Per-org service registry with SSRF protection and encrypted upstream headers |
+| `apps/api-gateway/src/consumers` | Consumers, API keys, service grants, key authentication and rate limiting |
+| `apps/api-gateway/src/common` | Contract identity, SSRF guard, validation helpers |
+| `apps/api-gateway/src/cli/seed.ts` | `pnpm db:seed`: demo organization, consumers and keys |
 | `apps/api-gateway/src/events` | In-process event bus feeding the SSE stream |
 | `apps/api-gateway/src/proxy` | Forwards requests, triggers observation, applies live patches |
 | `apps/api-gateway/src/observation` | Contract baselines, drift detection, drift event recording |
@@ -249,7 +311,7 @@ Postgres is the source of truth for live patches. Each gateway instance keeps an
 | `apps/api-gateway/src/cognitive` | Gemini adapter generation, fallback adapter, verification and persistence |
 | `apps/api-gateway/src/canary` | Live patch registry, traffic routing and counters, promotion and rollback |
 | `apps/api-gateway/src/governance` | Read models for the dashboard and audited promote/rollback decisions |
-| `apps/api-gateway/src/demo` | Chaos controls for the mock services |
+| `apps/api-gateway/src/demo` | Chaos controls for an organization's demo upstreams |
 | `apps/api-gateway/src/database`, `redis` | Connection lifecycle for Supabase and Upstash |
 | `apps/dashboard` | Governance dashboard (React + Vite) |
 | `apps/mfe-shell`, `apps/mfe-user`, `apps/mfe-order` | Module Federation host and remotes |
@@ -258,6 +320,7 @@ Postgres is the source of truth for live patches. Each gateway instance keeps an
 | `packages/core` | Pure drift engine: flattening, drift coefficient, diff, classification |
 | `packages/adapter-runtime` | AST validator and VM sandbox for adapters |
 | `packages/database` | Drizzle schema, SQL migrations, connection factory |
+| `packages/crypto` | AES-256-GCM secret sealing, HMAC key/token hashing, API key generation |
 | `packages/shared-types` | Domain enums and the API response types shared by the gateway and the frontends |
 | `packages/config` | Connection settings shared by the gateway and Drizzle Kit |
 | `packages/upstream-client`, `gemini-client` | HTTP clients for upstream services and the Gemini API |
@@ -265,12 +328,16 @@ Postgres is the source of truth for live patches. Each gateway instance keeps an
 
 ### Database
 
-Six tables, created by the migrations in `packages/database/migrations`:
+Created by the migrations in `packages/database/migrations` (pre-tenancy data is moved into a "Demo Organization"):
 
 | Table | Holds |
 |---|---|
-| `service_registries` | Known upstream services and their health (`HEALTHY`, `DRIFTING`, …) |
-| `api_contracts` | Baseline schema tokens per contract |
+| `organizations` | Tenants and their pipeline overrides (threshold, canary %, Gemini model, encrypted BYO Gemini key) |
+| `org_members`, `org_invitations` | Memberships with roles; single-use, email-bound, expiring invitations (token hashes only) |
+| `org_activity` | Administrative audit trail |
+| `service_registries` | Each org's upstream services, base URLs, encrypted headers and health |
+| `consumers`, `consumer_keys`, `consumer_services` | Applications, their API keys (hashes only) and the services they may call |
+| `api_contracts` | Baseline schema tokens per consumer contract, with optional field pins |
 | `drift_events` | Each detected drift with its coefficient, diff and classification |
 | `patch_registries` | Generated adapters and their lifecycle (`VALIDATED` → `CANARY` → `ACTIVE`, or `FAILED` / `SUPERSEDED` / `ROLLED_BACK`) |
 | `governance_audits` | Automatic and human decisions with reasoning |
@@ -287,7 +354,14 @@ pnpm test:e2e               # Playwright: dashboard + MFE shell + gateway in a r
 
 The integration and e2e commands need Docker. The Gemini tests run only when `TEST_GEMINI_API_KEY` is exported (optionally `TEST_GEMINI_MODEL`); otherwise they are skipped.
 
-The e2e test drives Google Chrome through the full journey: drift crashes the profile card, a canary request heals it, a reviewer previews and promotes the patch, and the audit records them. Stop `pnpm dev` first, since it uses the same ports.
+The e2e test drives Google Chrome through three journeys:
+- signed-out redirects;
+- a new user's onboarding (organization, service, consumer key that works through the gateway);
+- an invited owner joining the seeded Demo Organization, where drift crashes the profile card, a canary request heals it, the patch is previewed and promoted, and the audit records the reviewer.
+
+Stop `pnpm dev` first, since it uses the same ports.
+
+The integration suite covers tenant isolation (non-members get 404, keys can't cross organizations), every key check, roles and invitations, per-consumer contracts with pinning, revocation and restart recovery.
 
 Integration and e2e tests always start their own throwaway containers and never touch the Supabase or Upstash databases in `.env`. Auth tests sign tokens with a locally generated key served from a local JWKS endpoint.
 

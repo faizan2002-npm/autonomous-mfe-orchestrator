@@ -29,4 +29,10 @@ redis_port=$(docker port "$run_id-redis" 6379/tcp | cut -d: -f2)
 export E2E_DATABASE_URL="postgresql://postgres:e2e@127.0.0.1:$pg_port/fyp_e2e"
 export E2E_REDIS_URL="redis://127.0.0.1:$redis_port"
 DATABASE_URL="$E2E_DATABASE_URL" DIRECT_URL="$E2E_DATABASE_URL" pnpm db:migrate
+# Fresh secrets per run, shared by the seed and the gateway under test.
+export ENCRYPTION_KEY="$(openssl rand -base64 32)" KEY_PEPPER="$(openssl rand -base64 32)"
+seed_output=$(DATABASE_URL="$E2E_DATABASE_URL" APP_URL=http://localhost:5100 \
+  node apps/api-gateway/dist/cli/seed.js --owner e2e-reviewer@example.test)
+export VITE_MFE_CONSUMER_KEY="$(sed -n 's/^VITE_MFE_CONSUMER_KEY=//p' <<<"$seed_output")"
+export E2E_OWNER_INVITE="$(sed -n 's/^Owner invitation for [^:]*: //p' <<<"$seed_output")"
 pnpm --filter @orchestrator/e2e test:e2e "$@"

@@ -3,7 +3,10 @@ import { defineConfig } from '@playwright/test';
 // Started by scripts/test-e2e.sh, which provides disposable Postgres/Redis URLs.
 const required = (name: string) => {
   const value = process.env[name];
-  if (!value) throw new Error(`${name} must be set; run "pnpm test:e2e" from the repository root`);
+  if (!value)
+    throw new Error(
+      `${name} must be set; run "pnpm test:e2e" from the repository root`,
+    );
   return value;
 };
 
@@ -14,6 +17,12 @@ const env = {
   DATABASE_URL: required('E2E_DATABASE_URL'),
   DIRECT_URL: required('E2E_DATABASE_URL'),
   REDIS_URL: required('E2E_REDIS_URL'),
+  ENCRYPTION_KEY: required('ENCRYPTION_KEY'),
+  KEY_PEPPER: required('KEY_PEPPER'),
+  // The demo services run on localhost.
+  ALLOW_PRIVATE_UPSTREAMS: 'true',
+  APP_URL: 'http://localhost:5100',
+  VITE_MFE_CONSUMER_KEY: required('VITE_MFE_CONSUMER_KEY'),
   SUPABASE_URL: AUTH_URL,
   // Empty disables Gemini: patches come from the deterministic fallback, so runs are offline and repeatable.
   GEMINI_API_KEY: '',
@@ -46,13 +55,45 @@ export default defineConfig({
     trace: 'retain-on-failure',
   },
   webServer: [
-    server('node auth-server.mjs', '.', `${AUTH_URL}/auth/v1/.well-known/jwks.json`),
-    server('node dist/index.js', '../../services/user-service', 'http://localhost:3001/health'),
-    server('node dist/index.js', '../../services/order-service', 'http://localhost:3002/health'),
-    server('node dist/main.js', '../api-gateway', 'http://localhost:4000/patches/user-service/remoteEntry.js'),
-    server('pnpm exec vite --strictPort', '../mfe-user', 'http://localhost:5001/remoteEntry.js'),
-    server('pnpm exec vite --strictPort', '../mfe-order', 'http://localhost:5002/remoteEntry.js'),
-    server('pnpm exec vite --strictPort', '../mfe-shell', 'http://localhost:5000'),
-    server('pnpm exec vite --strictPort', '../dashboard', 'http://localhost:5100'),
+    server(
+      'node auth-server.mjs',
+      '.',
+      `${AUTH_URL}/auth/v1/.well-known/jwks.json`,
+    ),
+    server(
+      'node dist/index.js',
+      '../../services/user-service',
+      'http://localhost:3001/health',
+    ),
+    server(
+      'node dist/index.js',
+      '../../services/order-service',
+      'http://localhost:3002/health',
+    ),
+    server(
+      'node dist/main.js',
+      '../api-gateway',
+      'http://localhost:4000/api/orgs',
+    ),
+    server(
+      'pnpm exec vite --strictPort',
+      '../mfe-user',
+      'http://localhost:5001/remoteEntry.js',
+    ),
+    server(
+      'pnpm exec vite --strictPort',
+      '../mfe-order',
+      'http://localhost:5002/remoteEntry.js',
+    ),
+    server(
+      'pnpm exec vite --strictPort',
+      '../mfe-shell',
+      'http://localhost:5000',
+    ),
+    server(
+      'pnpm exec vite --strictPort',
+      '../dashboard',
+      'http://localhost:5100',
+    ),
   ],
 });

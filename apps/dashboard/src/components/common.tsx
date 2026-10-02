@@ -24,10 +24,24 @@ export function PageHeader({
   );
 }
 
-export function ContractLabel({ contract, withService = true }: { contract: ContractRefView; withService?: boolean }) {
+export function ContractLabel({
+  contract,
+  withService = true,
+}: {
+  contract: Pick<ContractRefView, 'serviceName' | 'httpMethod' | 'endpointPath'> & { consumerName?: string };
+  withService?: boolean;
+}) {
   return (
     <span className="inline-flex min-w-0 items-center gap-2">
       {withService && <span className="truncate font-medium">{contract.serviceName}</span>}
+      {contract.consumerName && (
+        <span
+          className="truncate rounded-full border px-2 py-0.5 text-[11px] text-muted-foreground"
+          title="Consumer: the application whose contract this is"
+        >
+          {contract.consumerName}
+        </span>
+      )}
       <code className="truncate rounded bg-muted px-1.5 py-0.5 font-mono text-xs text-muted-foreground">
         <span className="font-semibold text-foreground">{contract.httpMethod}</span>{' '}
         {contract.endpointPath}

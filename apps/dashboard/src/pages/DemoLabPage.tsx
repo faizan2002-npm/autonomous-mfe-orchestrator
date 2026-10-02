@@ -9,19 +9,22 @@ import { ErrorState, JsonView, LoadingRows, PageHeader } from '@/components/comm
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Switch } from '@/components/ui/switch';
-import { api, keys } from '@/lib/api';
+import { keys } from '@/lib/api';
+import { useOrg, useOrgPath } from '@/lib/org';
 import { env } from '@/lib/env';
 import { useLiveEvents } from '@/lib/events';
 import { cn } from '@/lib/utils';
 
-/** Sample endpoints of the mock services, as the micro-frontends call them. */
-const ENDPOINTS: Record<string, string> = {
-  'user-service': '/api/v1/user-service/users/101',
-  'order-service': '/api/v1/order-service/orders/9821',
+/** Sample paths of the demo services; other services start at their root. */
+const SAMPLE_PATHS: Record<string, string> = {
+  'user-service': 'users/101',
+  'order-service': 'orders/9821',
 };
+const endpointFor = (service: string, path: string) => `/api/v1/${service}/${path.replace(/^\/+/, '')}`;
 
 type CanaryMode = 'on' | 'off' | 'sampled';
 
@@ -32,10 +35,13 @@ interface ProxyResult {
   body: unknown;
 }
 
-async function sendThroughGateway(path: string, canary: CanaryMode): Promise<ProxyResult> {
+async function sendThroughGateway(path: string, apiKey: string, canary: CanaryMode): Promise<ProxyResult> {
   const started = performance.now();
   const response = await fetch(`${env.gatewayUrl}${path}`, {
-    headers: canary === 'sampled' ? {} : { 'x-mfe-canary': canary === 'on' ? 'true' : 'false' },
+    headers: {
+      'x-orchestrator-key': apiKey,
+      ...(canary === 'sampled' ? {} : { 'x-mfe-canary': canary === 'on' ? 'true' : 'false' }),
+    },
   });
   return {
     status: response.status,
@@ -75,6 +81,7 @@ function pipelineFor(serviceName: string, events: StreamedEvent[]) {
 }
 
 function Pipeline({ serviceName }: { serviceName: string }) {
+  const p = useOrgPath();
   const { events } = useLiveEvents();
   const { steps, patchId } = pipelineFor(serviceName, events);
   const Icon = { done: CheckCircle2, failed: CircleSlash, pending: CircleDashed };
@@ -111,7 +118,7 @@ function Pipeline({ serviceName }: { serviceName: string }) {
       </ol>
       {patchId && (
         <Button asChild variant="link" className="mt-2 px-0">
-          <Link to={`/patches/${patchId}`}>Review this patch →</Link>
+          <Link to={p(`/patches/${patchId}`)}>Review this patch →</Link>
         </Button>
       )}
     </div>
@@ -119,16 +126,21 @@ function Pipeline({ serviceName }: { serviceName: string }) {
 }
 
 export function DemoLabPage() {
+  const { slug, api } = useOrg();
   const queries = useQueryClient();
-  const services = useQuery({ queryKey: keys.demoServices, queryFn: api.demoServices });
+  const services = useQuery({ queryKey: keys.demoServices(slug), queryFn: api.demoServices });
   const [target, setTarget] = useState('user-service');
+  const [path, setPath] = useState(SAMPLE_PATHS['user-service']);
+  // Kept in memory only; defaults to the demo frontend's publishable key.
+  const [apiKey, setApiKey] = useState(env.demoConsumerKey);
+  const registry = useQuery({ queryKey: keys.registry(slug), queryFn: api.registry });
   const [canary, setCanary] = useState<CanaryMode>('on');
 
   const chaos = useMutation({
     mutationFn: ({ serviceName, mutated }: { serviceName: string; mutated: boolean }) =>
       api.setChaos(serviceName, mutated),
     onSuccess: (state) => {
-      queries.setQueryData(keys.demoServices, (current: typeof services.data) =>
+      queries.setQueryData(keys.demoServices(slug), (current: typeof services.data) =>
         current?.map((item) => (item.serviceName === state.serviceName ? state : item)),
       );
       toast.success(`${state.serviceName}: ${state.mutated ? 'schema drift injected' : 'stable contract restored'}`);
@@ -137,7 +149,7 @@ export function DemoLabPage() {
   });
 
   const send = useMutation({
-    mutationFn: () => sendThroughGateway(ENDPOINTS[target], canary),
+    mutationFn: () => sendThroughGateway(endpointFor(target, path), apiKey, canary),
     onError: (error) => toast.error(`Gateway unreachable: ${error.message}`),
   });
 
@@ -194,10 +206,16 @@ export function DemoLabPage() {
             <div className="flex flex-wrap items-end gap-3">
               <div className="space-y-1.5">
                 <Label>Service</Label>
-                <Select value={target} onValueChange={setTarget}>
+                <Select
+                  value={target}
+                  onValueChange={(next) => {
+                    setTarget(next);
+                    setPath(SAMPLE_PATHS[next] ?? '');
+                  }}
+                >
                   <SelectTrigger className="w-44"><SelectValue /></SelectTrigger>
                   <SelectContent>
-                    {Object.keys(ENDPOINTS).map((name) => (
+                    {(registry.data?.map((service) => service.serviceName) ?? Object.keys(SAMPLE_PATHS)).map((name) => (
                       <SelectItem key={name} value={name}>{name}</SelectItem>
                     ))}
                   </SelectContent>
@@ -214,13 +232,31 @@ export function DemoLabPage() {
                   </SelectContent>
                 </Select>
               </div>
-              <Button onClick={() => send.mutate()} disabled={send.isPending}>
+              <div className="min-w-40 flex-1 space-y-1.5">
+                <Label htmlFor="demo-path">Path</Label>
+                <Input id="demo-path" value={path} onChange={(event) => setPath(event.target.value)} />
+              </div>
+              <Button onClick={() => send.mutate()} disabled={send.isPending || !apiKey}>
                 {send.isPending ? <Loader2 className="animate-spin" /> : <Send />}
                 Send request
               </Button>
             </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="demo-key">Consumer API key</Label>
+              <Input
+                id="demo-key"
+                type="password"
+                autoComplete="off"
+                placeholder="pk_… or sk_… (Consumers & keys)"
+                value={apiKey}
+                onChange={(event) => setApiKey(event.target.value)}
+              />
+              <p className="text-xs text-muted-foreground">
+                Sent as x-orchestrator-key. Requests count toward that consumer's contracts.
+              </p>
+            </div>
             <code className="block truncate rounded bg-muted px-2 py-1 font-mono text-xs text-muted-foreground">
-              GET {env.gatewayUrl}{ENDPOINTS[target]}
+              GET {env.gatewayUrl}{endpointFor(target, path)}
             </code>
             {send.data && (
               <div className="space-y-2">

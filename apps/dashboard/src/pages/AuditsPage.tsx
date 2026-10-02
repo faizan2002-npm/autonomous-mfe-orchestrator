@@ -4,11 +4,14 @@ import { EmptyState, ErrorState, LoadingRows, PageHeader } from '@/components/co
 import { StatusBadge } from '@/components/StatusBadge';
 import { Card, CardContent } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { api, keys } from '@/lib/api';
+import { keys } from '@/lib/api';
+import { useOrg, useOrgPath } from '@/lib/org';
 import { absoluteTime, shortId } from '@/lib/format';
 
 export function AuditsPage() {
-  const audits = useQuery({ queryKey: keys.audits, queryFn: () => api.audits(200) });
+  const { slug, api } = useOrg();
+  const p = useOrgPath();
+  const audits = useQuery({ queryKey: keys.audits(slug), queryFn: () => api.audits(200) });
   return (
     <>
       <PageHeader
@@ -47,7 +50,7 @@ export function AuditsPage() {
                   </TableCell>
                   <TableCell className="pr-6 text-right">
                     {audit.patchId ? (
-                      <Link to={`/patches/${audit.patchId}`} className="font-mono text-xs hover:underline">
+                      <Link to={p(`/patches/${audit.patchId}`)} className="font-mono text-xs hover:underline">
                         {shortId(audit.patchId)}
                       </Link>
                     ) : (

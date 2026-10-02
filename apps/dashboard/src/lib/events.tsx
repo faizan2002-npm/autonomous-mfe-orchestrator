@@ -9,7 +9,7 @@ import {
   type ReactNode,
 } from 'react';
 import { keys } from './api';
-import { env } from './env';
+import { useOrg } from './org';
 import { accessToken } from './supabase';
 
 export type LiveStatus = 'connecting' | 'live' | 'offline';
@@ -24,42 +24,46 @@ const MAX_EVENTS = 100;
 const LiveEventsContext = createContext<LiveEvents>({ status: 'offline', events: [] });
 
 /** Keeps cached queries fresh by invalidating exactly what an event changed. */
-export function invalidateFor(event: StreamedEvent, queries: QueryClient): void {
+export function invalidateFor(event: StreamedEvent, queries: QueryClient, slug: string): void {
   const invalidate = (queryKey: readonly unknown[]) =>
     void queries.invalidateQueries({ queryKey });
+  const org = keys.org(slug);
   switch (event.type) {
     case 'drift.detected':
-      invalidate(keys.stats);
-      invalidate(keys.services);
-      invalidate(['drift-events']);
+      invalidate(keys.stats(slug));
+      invalidate(keys.services(slug));
+      invalidate([...org, 'drift-events']);
       return;
     case 'patch.generated':
     case 'patch.rejected':
     case 'patch.deployed':
     case 'patch.promoted':
     case 'patch.rolledBack':
-      invalidate(keys.stats);
-      invalidate(keys.services);
-      invalidate(['patches']);
-      invalidate(keys.patch(event.patchId));
-      invalidate(['drift-events']);
-      invalidate(['drift-event']);
-      invalidate(keys.audits);
+      invalidate(keys.stats(slug));
+      invalidate(keys.services(slug));
+      invalidate([...org, 'patches']);
+      invalidate(keys.patch(slug, event.patchId));
+      invalidate([...org, 'drift-events']);
+      invalidate([...org, 'drift-event']);
+      invalidate(keys.audits(slug));
       return;
     case 'request.proxied':
       // Canary traffic counters live on the patch detail.
-      invalidate(['patch']);
+      invalidate([...org, 'patch']);
       return;
   }
 }
 
+/** Streams this organization's pipeline events; remounts (reconnects) when the org changes. */
 export function LiveEventsProvider({ children }: { children: ReactNode }) {
   const queries = useQueryClient();
+  const { slug, api } = useOrg();
   const [state, setState] = useState<LiveEvents>({ status: 'connecting', events: [] });
 
   useEffect(() => {
     const controller = new AbortController();
-    void fetchEventSource(`${env.gatewayUrl}/api/governance/events`, {
+    setState({ status: 'connecting', events: [] });
+    void fetchEventSource(api.eventsUrl, {
       signal: controller.signal,
       openWhenHidden: true,
       // A fresh token on every (re)connect, since access tokens expire.
@@ -79,7 +83,7 @@ export function LiveEventsProvider({ children }: { children: ReactNode }) {
         if (!message.data) return;
         const event = JSON.parse(message.data) as StreamedEvent | { type: 'heartbeat' };
         if (event.type === 'heartbeat') return;
-        invalidateFor(event, queries);
+        invalidateFor(event, queries, slug);
         setState((current) => ({
           status: 'live',
           events: [event, ...current.events].slice(0, MAX_EVENTS),
@@ -91,7 +95,7 @@ export function LiveEventsProvider({ children }: { children: ReactNode }) {
       },
     });
     return () => controller.abort();
-  }, [queries]);
+  }, [queries, slug, api.eventsUrl]);
 
   return <LiveEventsContext.Provider value={state}>{children}</LiveEventsContext.Provider>;
 }

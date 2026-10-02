@@ -11,6 +11,7 @@ import {
 } from 'lucide-react';
 import { Link } from 'react-router';
 import { useLiveEvents } from '@/lib/events';
+import { useOrgPath } from '@/lib/org';
 import { contractLabel, percent, relativeTime } from '@/lib/format';
 import { cn } from '@/lib/utils';
 
@@ -23,7 +24,7 @@ interface Described {
 }
 
 export function describeEvent(event: StreamedEvent): Described {
-  const where = `${event.contract.serviceName} · ${contractLabel(event.contract)}`;
+  const where = `${event.contract.consumerName} → ${event.contract.serviceName} · ${contractLabel(event.contract)}`;
   switch (event.type) {
     case 'drift.detected':
       return {
@@ -93,6 +94,7 @@ export function ActivityFeed({
   className?: string;
 }) {
   const { events, status } = useLiveEvents();
+  const p = useOrgPath();
   const visible = events
     .filter((event) => includeRequests || event.type !== 'request.proxied')
     .slice(0, limit);
@@ -124,7 +126,7 @@ export function ActivityFeed({
         );
         return (
           <li key={`${event.at}-${index}`} className="animate-in fade-in slide-in-from-top-1">
-            {href ? <Link to={href}>{body}</Link> : body}
+            {href ? <Link to={p(href)}>{body}</Link> : body}
           </li>
         );
       })}
