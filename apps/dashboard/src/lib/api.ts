@@ -4,18 +4,26 @@ import type {
   ConnectionTestResult,
   ConsumerKind,
   ConsumerView,
+  CreatedEndpoint,
   CreatedInvitation,
+  DeliveryView,
   DashboardStats,
   DemoServiceState,
   DriftEventDetail,
   DriftEventView,
   DriftType,
+  EndpointType,
   FieldPinsView,
+  Inbox,
   InvitationPreview,
   InvitationView,
   IssuedKey,
   KeyType,
   MemberView,
+  NotificationChannel,
+  NotificationEndpointView,
+  NotificationEvent,
+  NotificationPreferences,
   OrgRole,
   OrgSettingsView,
   OrgSummary,
@@ -25,6 +33,7 @@ import type {
   PatchStatus,
   PatchView,
   PublicConfig,
+  PushConfig,
   RegisteredService,
   ServiceDetail,
   ServiceSummary,
@@ -110,6 +119,18 @@ export interface OrgSettingsInput {
   geminiApiKey?: string;
 }
 
+export interface EndpointInput {
+  name?: string;
+  url?: string;
+  events?: NotificationEvent[];
+  enabled?: boolean;
+}
+
+export interface BrowserPushSubscription {
+  endpoint: string;
+  keys: { p256dh: string; auth: string };
+}
+
 /** Calls that are not tied to one organization. */
 export const accountApi = {
   myOrgs: () => request<OrgSummary[]>('/api/orgs'),
@@ -119,6 +140,10 @@ export const accountApi = {
     request<InvitationPreview>(`/api/invitations/${encodeURIComponent(token)}`),
   acceptInvitation: (token: string) =>
     request<OrgSummary>(`/api/invitations/${encodeURIComponent(token)}/accept`, json('POST')),
+  pushConfig: () => request<PushConfig>('/api/push/config'),
+  subscribePush: (subscription: BrowserPushSubscription) =>
+    request<void>('/api/push/subscriptions', json('POST', subscription)),
+  unsubscribePush: (endpoint: string) => request<void>('/api/push/subscriptions', json('DELETE', { endpoint })),
 };
 
 /** Every call scoped to one organization. */
@@ -155,6 +180,29 @@ export function orgApi(slug: string) {
       request<IssuedKey>(`${org}/consumers/${consumerId}/keys`, json('POST', input)),
     revokeKey: (consumerId: string, keyId: string) =>
       request<void>(`${org}/consumers/${consumerId}/keys/${keyId}`, json('DELETE')),
+
+    inbox: (limit = 50) => request<Inbox>(`${org}/notifications${query({ limit })}`),
+    markRead: (ids?: string[]) => request<void>(`${org}/notifications/read`, json('POST', ids ? { ids } : {})),
+    preferences: () => request<NotificationPreferences>(`${org}/notifications/preferences`),
+    updatePreferences: (preferences: Partial<Record<NotificationEvent, NotificationChannel[]>>) =>
+      request<NotificationPreferences>(
+        `${org}/notifications/preferences`,
+        json('PUT', {
+          preferences: Object.entries(preferences).map(([event, channels]) => ({ event, channels })),
+        }),
+      ),
+    testNotification: () =>
+      request<{ email: boolean; pushDevices: number }>(`${org}/notifications/test`, json('POST')),
+    endpoints: () => request<NotificationEndpointView[]>(`${org}/notifications/endpoints`),
+    createEndpoint: (input: { type: EndpointType; name: string; url: string; events: NotificationEvent[] }) =>
+      request<CreatedEndpoint>(`${org}/notifications/endpoints`, json('POST', input)),
+    updateEndpoint: (id: string, input: EndpointInput) =>
+      request<NotificationEndpointView>(`${org}/notifications/endpoints/${id}`, json('PATCH', input)),
+    deleteEndpoint: (id: string) => request<void>(`${org}/notifications/endpoints/${id}`, json('DELETE')),
+    testEndpoint: (id: string) => request<void>(`${org}/notifications/endpoints/${id}/test`, json('POST')),
+    deliveries: (endpointId?: string) =>
+      request<DeliveryView[]>(`${org}/notifications/deliveries${query({ endpointId })}`),
+    redeliver: (id: string) => request<void>(`${org}/notifications/deliveries/${id}/redeliver`, json('POST')),
 
     stats: () => request<DashboardStats>(`${governance}/stats`),
     config: () => request<PublicConfig>(`${governance}/config`),
@@ -210,4 +258,9 @@ export const keys = {
   patch: (slug: string, id: string) => ['org', slug, 'patch', id] as const,
   audits: (slug: string) => ['org', slug, 'audits'] as const,
   demoServices: (slug: string) => ['org', slug, 'demo-services'] as const,
+  inbox: (slug: string) => ['org', slug, 'inbox'] as const,
+  preferences: (slug: string) => ['org', slug, 'notification-preferences'] as const,
+  endpoints: (slug: string) => ['org', slug, 'notification-endpoints'] as const,
+  deliveries: (slug: string, endpointId?: string) => ['org', slug, 'deliveries', endpointId ?? 'all'] as const,
+  pushConfig: ['push-config'] as const,
 };

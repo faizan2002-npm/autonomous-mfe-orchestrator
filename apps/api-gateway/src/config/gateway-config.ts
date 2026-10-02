@@ -27,7 +27,15 @@ export interface GatewayConfig {
   allowPrivateUpstreams: boolean;
   /** Proxied requests allowed per API key per minute. */
   rateLimitPerMinute: number;
+  email: EmailConfig;
+  /** Web push; disabled unless a VAPID key pair is configured. */
+  push: { publicKey: string; privateKey: string; subject: string } | null;
 }
+
+export type EmailConfig =
+  | { provider: 'log'; from: string }
+  | { provider: 'resend'; from: string; resendApiKey: string }
+  | { provider: 'smtp'; from: string; smtpUrl: string };
 
 const DEFAULT_ALLOWED_ORIGINS = [
   'http://localhost:5100',
@@ -77,7 +85,38 @@ export function loadGatewayConfig(env: Environment): GatewayConfig {
       1_000_000,
       true,
     ),
+    email: readEmail(env),
+    push: readPush(env),
   };
+}
+
+function readEmail(env: Environment): EmailConfig {
+  const provider = env.EMAIL_PROVIDER?.trim() || 'log';
+  const from = env.EMAIL_FROM?.trim() || 'MFE Orchestrator <onboarding@resend.dev>';
+  if (provider === 'log') return { provider, from };
+  if (provider === 'resend') {
+    const resendApiKey = env.RESEND_API_KEY?.trim();
+    if (!resendApiKey) throw new Error('RESEND_API_KEY is required when EMAIL_PROVIDER=resend');
+    return { provider, from, resendApiKey };
+  }
+  if (provider === 'smtp') {
+    const smtpUrl = env.SMTP_URL?.trim();
+    if (!smtpUrl) throw new Error('SMTP_URL is required when EMAIL_PROVIDER=smtp');
+    requireProtocol('SMTP_URL', smtpUrl, ['smtp:', 'smtps:']);
+    return { provider, from, smtpUrl };
+  }
+  throw new Error('EMAIL_PROVIDER must be log, resend or smtp');
+}
+
+function readPush(env: Environment): GatewayConfig['push'] {
+  const publicKey = env.VAPID_PUBLIC_KEY?.trim();
+  const privateKey = env.VAPID_PRIVATE_KEY?.trim();
+  if (!publicKey && !privateKey) return null;
+  if (!publicKey || !privateKey)
+    throw new Error('Set both VAPID_PUBLIC_KEY and VAPID_PRIVATE_KEY (npx web-push generate-vapid-keys)');
+  const subject = env.VAPID_SUBJECT?.trim() || 'mailto:admin@example.com';
+  if (!/^(mailto:|https:)/.test(subject)) throw new Error('VAPID_SUBJECT must be a mailto: or https: URL');
+  return { publicKey, privateKey, subject };
 }
 
 function readUrl(env: Environment, name: string, fallback: string): string {

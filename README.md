@@ -10,6 +10,7 @@ A gateway that sits between micro-frontends and their backend services. It learn
 
 - [How It Works](#how-it-works)
 - [Organizations, Consumers and Keys](#organizations-consumers-and-keys)
+- [Notifications](#notifications)
 - [Tech Stack](#tech-stack)
 - [Quick Start](#quick-start)
 - [Frontend](#frontend)
@@ -64,6 +65,32 @@ Keys are shown once, stored only as peppered HMACs, revocable instantly and rate
 # A backend calling order-service through the gateway
 curl -H "x-orchestrator-key: $ORCHESTRATOR_KEY" http://localhost:4000/api/v1/order-service/orders/9821
 ```
+
+## Notifications
+
+Reviewers hear about work that needs them the moment it happens:
+
+| Event | Default channels (reviewers and up) |
+|---|---|
+| Breaking drift | inbox, email, push |
+| Patch awaiting review | inbox, email, push |
+| Patch rejected / rolled back | inbox, email |
+| Patch promoted | inbox |
+
+Viewers only get inbox entries. Each member can change their channels per organization under **Notifications → Preferences**, enable **push on this device**, and send themselves a test. Invitations are emailed as well as shown as copyable links.
+
+- **Email** is pluggable through `EMAIL_PROVIDER`:
+  - `resend` uses the Resend HTTP API;
+  - `smtp` uses Nodemailer with any `smtp://` or `smtps://` server;
+  - `log` prints mail to the gateway log and is the default for development.
+- **Web push** uses VAPID. Generate keys with `npx web-push generate-vapid-keys`. The dashboard's service worker (`public/sw.js`) shows the alert and opens the patch on click. Subscriptions that push services report as gone (404/410) are pruned automatically.
+- **Slack and webhooks** are organization-wide and admin-managed under **Notifications → Integrations**. Slack gets Block Kit messages with a review link. Webhooks are signed: `x-orchestrator-signature: t=<unix>,v1=<hex>`, where `v1 = HMAC-SHA256(secret, "<t>.<raw body>")`. The `whsec_…` secret is shown once. Every delivery also carries `x-orchestrator-event` and `x-orchestrator-delivery` headers. Webhook URLs are stored encrypted and SSRF-guarded.
+
+Every external delivery goes through a durable Postgres outbox (`notification_deliveries`):
+- Workers claim rows with `FOR UPDATE SKIP LOCKED`, so any number of gateway instances can share the outbox.
+- Failures retry with exponential backoff (30 s, 1 min, 2 min…), up to six attempts. Permanent 4xx failures stop immediately.
+- Admins see the delivery log and can **redeliver** any entry.
+- The in-app bell updates live over the event stream, and each member's stream carries only their own notifications.
 
 ## Tech Stack
 
@@ -157,6 +184,7 @@ An **org switcher** moves between organizations. Everything lives under `/o/:org
 | **Patches** | Canary / active / rejected / rolled back / superseded; detail view with the adapter code, generator, sandbox preview, canary traffic, lifecycle and audit trail, plus **Promote** and **Roll back** |
 | **Audit Log** | Every automatic and human patch decision with reviewer and notes |
 | **Demo Lab** | Chaos switches, a request sender (with a consumer key and canary routing), and a live pipeline view |
+| **Notifications** | Inbox; per-event email/push preferences, push on this device and a test send; Slack and webhook integrations with a delivery log and redelivery (admins) |
 | **Members** | Members and roles, invitations with copyable single-use links |
 | **Activity** | Administrative trail: members, keys, services, settings (admins) |
 | **Settings** | Per-org drift threshold, canary share, Gemini model and bring-your-own Gemini key (encrypted, never shown back) |
@@ -199,6 +227,12 @@ All configuration is validated once at startup. An invalid or missing value stop
 | `ALLOW_PRIVATE_UPSTREAMS` | `false` | Allow service URLs on private/loopback addresses (local development only) |
 | `APP_URL` | `http://localhost:5100` | Dashboard URL used in invitation links |
 | `RATE_LIMIT_PER_MINUTE` | `600` | Proxied requests per consumer key per minute |
+| `EMAIL_PROVIDER` | `log` | `log`, `resend` or `smtp` |
+| `EMAIL_FROM` | `MFE Orchestrator <onboarding@resend.dev>` | Sender of notification and invitation emails |
+| `RESEND_API_KEY` | *unset* | Required when `EMAIL_PROVIDER=resend` |
+| `SMTP_URL` | *unset* | Required when `EMAIL_PROVIDER=smtp`, e.g. `smtps://user:pass@smtp.example.com:465` |
+| `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY` | *unset* | Web push keys (`npx web-push generate-vapid-keys`); both or neither |
+| `VAPID_SUBJECT` | `mailto:admin@example.com` | Contact for push services (`mailto:` or `https:`) |
 | `ALLOWED_ORIGINS` | the four local frontend origins | Browser origins allowed to call the management API (consumer traffic is governed by key origins) |
 | `REDIS_URL` | *required* | Upstash Redis (`rediss://`) |
 | `GEMINI_API_KEY` | *unset* | Platform Gemini key; when unset (and the org has none), only the fallback generates adapters |
@@ -235,6 +269,8 @@ Responses: `401` missing/unknown/revoked key, `403` wrong origin or service not 
 | `GET` / `POST` | `/api/orgs` | Your organizations / create one (`{ name, slug }`; you become owner) |
 | `GET` | `/api/invitations/:token` | Invitation preview (no sign-in needed) |
 | `POST` | `/api/invitations/:token/accept` | Join; the signed-in email must match the invitation |
+| `GET` | `/api/push/config` | Whether web push is enabled, and the VAPID public key (no sign-in needed) |
+| `POST`, `DELETE` | `/api/push/subscriptions` | Register / remove this browser's push subscription |
 
 ### Organization (`/api/orgs/:orgSlug`, member role in brackets)
 
@@ -254,6 +290,12 @@ Responses: `401` missing/unknown/revoked key, `403` wrong origin or service not 
 | `PUT` | `/governance/contracts/:id/pins` | `{ required: [...], ignored: [...] }` [reviewer] |
 | `POST` | `/governance/patches/:id/preview`, `/promote`, `/rollback` | Sandbox preview; decisions `{ serviceName, notes? }` [reviewer] |
 | `GET` | `/governance/events` | Server-Sent Events for this organization only [viewer] |
+| `GET`, `POST` | `/notifications`, `/notifications/read` | Your inbox (`unreadCount`, newest first) / mark read (`{ ids? }`, all when omitted) [viewer] |
+| `GET`, `PUT` | `/notifications/preferences` | Your channels per event (`{ preferences: [{ event, channels }] }`) [viewer] |
+| `POST` | `/notifications/test` | Send yourself a test email and push [viewer] |
+| `GET`, `POST`, `PATCH`, `DELETE` | `/notifications/endpoints`, `/notifications/endpoints/:id` | Slack and webhook integrations; webhook signing secret returned once [admin] |
+| `POST` | `/notifications/endpoints/:id/test` | Queue a test delivery [admin] |
+| `GET`, `POST` | `/notifications/deliveries?endpointId=`, `/notifications/deliveries/:id/redeliver` | Delivery log and redelivery [admin] |
 | `GET`, `POST` | `/demo/services`, `/demo/services/:name/chaos` | Chaos switch of demo upstreams [viewer / reviewer] |
 
 Only `CANARY` patches can be promoted and only live (`CANARY` or `ACTIVE`) patches can be rolled back; anything else returns `409`. Reviewers recorded in audits come from the verified token, never the request body.
@@ -341,6 +383,9 @@ Created by the migrations in `packages/database/migrations` (pre-tenancy data is
 | `drift_events` | Each detected drift with its coefficient, diff and classification |
 | `patch_registries` | Generated adapters and their lifecycle (`VALIDATED` → `CANARY` → `ACTIVE`, or `FAILED` / `SUPERSEDED` / `ROLLED_BACK`) |
 | `governance_audits` | Automatic and human decisions with reasoning |
+| `notifications`, `notification_preferences` | Per-member inbox and channel choices |
+| `notification_endpoints`, `push_subscriptions` | Org Slack/webhook integrations (encrypted URLs and secrets) and members' browser push subscriptions |
+| `notification_deliveries` | Outbox of email, push, Slack and webhook deliveries with attempts and errors |
 | `canary_metrics` | Reserved; canary traffic is currently counted in Redis |
 
 ## Testing
@@ -357,11 +402,16 @@ The integration and e2e commands need Docker. The Gemini tests run only when `TE
 The e2e test drives Google Chrome through three journeys:
 - signed-out redirects;
 - a new user's onboarding (organization, service, consumer key that works through the gateway);
-- an invited owner joining the seeded Demo Organization, where drift crashes the profile card, a canary request heals it, the patch is previewed and promoted, and the audit records the reviewer.
+- an invited owner joining the seeded Demo Organization, where drift crashes the profile card, a canary request heals it, the notification bell lights up live, the patch is previewed and promoted, and the audit records the reviewer.
 
 Stop `pnpm dev` first, since it uses the same ports.
 
-The integration suite covers tenant isolation (non-members get 404, keys can't cross organizations), every key check, roles and invitations, per-consumer contracts with pinning, revocation and restart recovery.
+The integration suite covers tenant isolation (non-members get 404, keys can't cross organizations), every key check, roles and invitations, per-consumer contracts with pinning, revocation and restart recovery. A notifications suite covers:
+- invitation email;
+- role-based inbox fan-out and preferences;
+- signed webhooks verified by a local receiver;
+- encrypted, VAPID-signed web push to a local HTTPS push service, with pruning of gone subscriptions;
+- outbox retry and redelivery.
 
 Integration and e2e tests always start their own throwaway containers and never touch the Supabase or Upstash databases in `.env`. Auth tests sign tokens with a locally generated key served from a local JWKS endpoint.
 

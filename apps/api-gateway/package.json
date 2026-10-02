@@ -31,12 +31,16 @@
     "fastify": "^4.27.0",
     "ioredis": "^5.4.1",
     "jose": "^6.2.12",
+    "nodemailer": "^10",
     "reflect-metadata": "^0.2.2",
     "rxjs": "^7.8.1",
-    "undici": "^7"
+    "undici": "^7",
+    "web-push": "^3.6.7"
   },
   "devDependencies": {
     "@types/node": "^20.14.0",
+    "@types/nodemailer": "^8.0.2",
+    "@types/web-push": "^3.6.4",
     "tsx": "^4.11.0",
     "typescript": "^5.4.5"
   }

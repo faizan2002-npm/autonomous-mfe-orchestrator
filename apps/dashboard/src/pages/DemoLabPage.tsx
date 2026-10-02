@@ -1,4 +1,3 @@
-import type { StreamedEvent } from '@orchestrator/shared-types';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { CheckCircle2, CircleDashed, CircleSlash, ExternalLink, Loader2, Send, Zap } from 'lucide-react';
 import { useState } from 'react';
@@ -16,7 +15,7 @@ import { Switch } from '@/components/ui/switch';
 import { keys } from '@/lib/api';
 import { useOrg, useOrgPath } from '@/lib/org';
 import { env } from '@/lib/env';
-import { useLiveEvents } from '@/lib/events';
+import { useLiveEvents, type PipelineEvent } from '@/lib/events';
 import { cn } from '@/lib/utils';
 
 /** Sample paths of the demo services; other services start at their root. */
@@ -54,7 +53,7 @@ async function sendThroughGateway(path: string, apiKey: string, canary: CanaryMo
 type StepState = 'done' | 'failed' | 'pending';
 
 /** The latest healing run for a service, reconstructed from the live event stream. */
-function pipelineFor(serviceName: string, events: StreamedEvent[]) {
+function pipelineFor(serviceName: string, events: PipelineEvent[]) {
   const drift = events.find((event) => event.type === 'drift.detected' && event.contract.serviceName === serviceName);
   const after = drift
     ? events.filter(
@@ -64,7 +63,7 @@ function pipelineFor(serviceName: string, events: StreamedEvent[]) {
           event.contract.endpointPath === drift.contract.endpointPath,
       )
     : [];
-  const has = (type: StreamedEvent['type']) => after.find((event) => event.type === type);
+  const has = (type: PipelineEvent['type']) => after.find((event) => event.type === type);
   const rejected = has('patch.rejected');
   const patch = has('patch.generated') ?? rejected;
   const steps: Array<{ label: string; state: StepState; detail?: string }> = [

@@ -68,3 +68,18 @@ test('invalid values fail at startup instead of mid-request', () => {
     true,
   );
 });
+
+test('email providers and web push are validated together with their credentials', () => {
+  assert.equal(loadGatewayConfig(testEnv()).email.provider, 'log');
+  assert.equal(loadGatewayConfig(testEnv()).push, null);
+  assert.throws(() => loadGatewayConfig(testEnv({ EMAIL_PROVIDER: 'resend' })), /RESEND_API_KEY/);
+  assert.throws(() => loadGatewayConfig(testEnv({ EMAIL_PROVIDER: 'smtp' })), /SMTP_URL/);
+  assert.throws(() => loadGatewayConfig(testEnv({ EMAIL_PROVIDER: 'pigeon' })), /EMAIL_PROVIDER/);
+  assert.equal(
+    loadGatewayConfig(testEnv({ EMAIL_PROVIDER: 'smtp', SMTP_URL: 'smtps://u:p@mail.example.com:465' })).email.provider,
+    'smtp',
+  );
+  assert.throws(() => loadGatewayConfig(testEnv({ VAPID_PUBLIC_KEY: 'x' })), /VAPID_PRIVATE_KEY/);
+  const push = loadGatewayConfig(testEnv({ VAPID_PUBLIC_KEY: 'pub', VAPID_PRIVATE_KEY: 'priv' })).push;
+  assert.equal(push?.subject, 'mailto:admin@example.com');
+});

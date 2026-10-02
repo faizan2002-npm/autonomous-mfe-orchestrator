@@ -31,6 +31,7 @@ const PatchesPage = page(() => import('@/pages/PatchesPage'), 'PatchesPage');
 const PatchDetailPage = page(() => import('@/pages/PatchesPage'), 'PatchDetailPage');
 const AuditsPage = page(() => import('@/pages/AuditsPage'), 'AuditsPage');
 const DemoLabPage = page(() => import('@/pages/DemoLabPage'), 'DemoLabPage');
+const NotificationsPage = page(() => import('@/pages/NotificationsPage'), 'NotificationsPage');
 const MembersPage = page(() => import('@/pages/MembersPage'), 'MembersPage');
 const ActivityPage = page(() => import('@/pages/ActivityPage'), 'ActivityPage');
 const SettingsPage = page(() => import('@/pages/SettingsPage'), 'SettingsPage');
@@ -90,6 +91,7 @@ export function App() {
                     <Route path="patches/:id" element={<PatchDetailPage />} />
                     <Route path="audits" element={<AuditsPage />} />
                     <Route path="demo" element={<DemoLabPage />} />
+                    <Route path="notifications" element={<NotificationsPage />} />
                     <Route path="members" element={<MembersPage />} />
                     <Route path="activity" element={<ActivityPage />} />
                     <Route path="settings" element={<SettingsPage />} />

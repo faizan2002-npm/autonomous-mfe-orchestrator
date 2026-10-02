@@ -132,11 +132,18 @@ export class GovernanceController {
 
   /** Live pipeline events for this organization only (Server-Sent Events). */
   @Sse('events')
-  streamEvents(@CurrentOrg() org: OrgAccess): Observable<MessageEvent> {
+  streamEvents(
+    @CurrentOrg() org: OrgAccess,
+    @CurrentUser() user: AuthenticatedUser,
+  ): Observable<MessageEvent> {
     return merge(
       this.events.stream().pipe(
         filter(
-          (event) => event.orgId === org.id && !INTERNAL_EVENTS.has(event.type),
+          (event) =>
+            event.orgId === org.id &&
+            !INTERNAL_EVENTS.has(event.type) &&
+            // Inbox events are personal.
+            (event.type !== 'notification.created' || event.userId === user.id),
         ),
         map((event) => ({ data: event })),
       ),

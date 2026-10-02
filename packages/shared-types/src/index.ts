@@ -56,4 +56,28 @@ export type KeyType = (typeof KEY_TYPES)[number];
 export const CONTRACT_SOURCES = ['traffic', 'openapi'] as const;
 export type ContractSource = (typeof CONTRACT_SOURCES)[number];
 
+/** Things members can be notified about. */
+export const NOTIFICATION_EVENTS = [
+  'drift.breaking',
+  'patch.awaiting_review',
+  'patch.rejected',
+  'patch.promoted',
+  'patch.rolled_back',
+] as const;
+export type NotificationEvent = (typeof NOTIFICATION_EVENTS)[number];
+
+/** Personal delivery channels (the in-app inbox is always on). */
+export const NOTIFICATION_CHANNELS = ['email', 'push'] as const;
+export type NotificationChannel = (typeof NOTIFICATION_CHANNELS)[number];
+
+/** Organization-wide integrations. */
+export const ENDPOINT_TYPES = ['slack', 'webhook'] as const;
+export type EndpointType = (typeof ENDPOINT_TYPES)[number];
+
+export const DELIVERY_CHANNELS = ['email', 'push', 'slack', 'webhook'] as const;
+export type DeliveryChannel = (typeof DELIVERY_CHANNELS)[number];
+
+export const DELIVERY_STATUSES = ['pending', 'sending', 'sent', 'dead'] as const;
+export type DeliveryStatus = (typeof DELIVERY_STATUSES)[number];
+
 export * from './api.js';

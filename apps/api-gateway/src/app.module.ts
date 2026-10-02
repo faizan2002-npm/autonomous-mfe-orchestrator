@@ -5,6 +5,7 @@ import { ConsumersModule } from './consumers/consumers.module.js';
 import { DemoModule } from './demo/demo.module.js';
 import { EventsModule } from './events/events.module.js';
 import { GovernanceModule } from './governance/governance.module.js';
+import { NotificationsModule } from './notifications/notifications.module.js';
 import { OrgsModule } from './orgs/orgs.module.js';
 import { ProxyModule } from './proxy/proxy.module.js';
 import { ServicesModule } from './services/services.module.js';
@@ -20,6 +21,7 @@ import { ServicesModule } from './services/services.module.js';
     GovernanceModule,
     ProxyModule,
     DemoModule,
+    NotificationsModule,
   ],
 })
 export class AppModule {}

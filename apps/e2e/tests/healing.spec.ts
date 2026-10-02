@@ -132,7 +132,15 @@ test('an invited owner joins the demo org; drift crashes a micro-frontend, the g
     profile(shell).getByText('Micro-frontend crashed'),
   ).toBeVisible();
 
-  // 5. The reviewer previews and promotes the patch.
+  // 5. The reviewer is notified in-app, live: the bell counts the drift alert and the review request.
+  await expect(dashboard.getByTestId('unread-count')).toBeVisible();
+  await dashboard.getByRole('button', { name: /^Notifications \(\d+ unread\)$/ }).click();
+  await expect(
+    dashboard.getByRole('menuitem', { name: /Patch ready for review: user-service/ }),
+  ).toBeVisible();
+  await dashboard.keyboard.press('Escape');
+
+  // 6. The reviewer previews and promotes the patch.
   await dashboard.getByRole('link', { name: 'Review this patch →' }).click();
   await dashboard.getByRole('button', { name: 'Run preview' }).click();
   await expect(dashboard.getByText(/Contract restored in/)).toBeVisible();
@@ -148,7 +156,7 @@ test('an invited owner joins the demo org; drift crashes a micro-frontend, the g
     dashboard.getByText(/successfully promoted to 100% production/),
   ).toBeVisible();
 
-  // 6. Every request is healed now, and the decision is audited under the signed-in reviewer.
+  // 7. Every request is healed now, and the decision is audited under the signed-in reviewer.
   await expect(
     profile(shell).getByText('Self-healed by gateway'),
   ).toBeVisible();
@@ -159,7 +167,7 @@ test('an invited owner joins the demo org; drift crashes a micro-frontend, the g
   await expect(approval).toContainText('Approved');
   await expect(approval).toContainText('e2e-reviewer@example.test');
 
-  // 7. The org switcher lists both organizations.
+  // 8. The org switcher lists both organizations.
   await dashboard.getByRole('button', { name: /Demo Organization/ }).click();
   await expect(
     dashboard.getByRole('menuitem', { name: 'E2E Corp' }),

@@ -14,10 +14,13 @@ import { accessToken } from './supabase';
 
 export type LiveStatus = 'connecting' | 'live' | 'offline';
 
+/** Events about the healing pipeline; personal notifications only refresh the inbox. */
+export type PipelineEvent = Exclude<StreamedEvent, { type: 'notification.created' }>;
+
 interface LiveEvents {
   status: LiveStatus;
   /** Newest first. */
-  events: StreamedEvent[];
+  events: PipelineEvent[];
 }
 
 const MAX_EVENTS = 100;
@@ -46,6 +49,10 @@ export function invalidateFor(event: StreamedEvent, queries: QueryClient, slug: 
       invalidate([...org, 'drift-events']);
       invalidate([...org, 'drift-event']);
       invalidate(keys.audits(slug));
+      return;
+    case 'notification.created':
+      // The gateway only streams a member their own notifications.
+      invalidate(keys.inbox(slug));
       return;
     case 'request.proxied':
       // Canary traffic counters live on the patch detail.
@@ -84,6 +91,7 @@ export function LiveEventsProvider({ children }: { children: ReactNode }) {
         const event = JSON.parse(message.data) as StreamedEvent | { type: 'heartbeat' };
         if (event.type === 'heartbeat') return;
         invalidateFor(event, queries, slug);
+        if (event.type === 'notification.created') return;
         setState((current) => ({
           status: 'live',
           events: [event, ...current.events].slice(0, MAX_EVENTS),

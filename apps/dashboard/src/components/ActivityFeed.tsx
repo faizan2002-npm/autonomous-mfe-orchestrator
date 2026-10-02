@@ -1,4 +1,3 @@
-import type { StreamedEvent } from '@orchestrator/shared-types';
 import {
   ArrowUpCircle,
   CircleSlash,
@@ -10,7 +9,7 @@ import {
   type LucideIcon,
 } from 'lucide-react';
 import { Link } from 'react-router';
-import { useLiveEvents } from '@/lib/events';
+import { useLiveEvents, type PipelineEvent } from '@/lib/events';
 import { useOrgPath } from '@/lib/org';
 import { contractLabel, percent, relativeTime } from '@/lib/format';
 import { cn } from '@/lib/utils';
@@ -23,7 +22,7 @@ interface Described {
   href?: string;
 }
 
-export function describeEvent(event: StreamedEvent): Described {
+export function describeEvent(event: PipelineEvent): Described {
   const where = `${event.contract.consumerName} → ${event.contract.serviceName} · ${contractLabel(event.contract)}`;
   switch (event.type) {
     case 'drift.detected':

@@ -6,3 +6,4 @@ export * from './drift-events.js';
 export * from './patch-registries.js';
 export * from './canary-metrics.js';
 export * from './governance-audits.js';
+export * from './notifications.js';

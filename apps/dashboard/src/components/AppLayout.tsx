@@ -1,5 +1,6 @@
 import {
   Activity,
+  Bell,
   Building2,
   Check,
   ChevronsUpDown,
@@ -20,6 +21,7 @@ import {
   Settings,
   Sun,
 } from 'lucide-react';
+import { useQuery } from '@tanstack/react-query';
 import { Suspense, useState } from 'react';
 import { Link, NavLink, Outlet } from 'react-router';
 import type { OrgRole } from '@orchestrator/shared-types';
@@ -35,9 +37,10 @@ import {
 import { Sheet, SheetContent, SheetTitle, SheetTrigger } from '@/components/ui/sheet';
 import { useAuth } from '@/auth/AuthProvider';
 import { LoadingRows } from '@/components/common';
+import { keys } from '@/lib/api';
 import { env } from '@/lib/env';
 import { useLiveEvents, type LiveStatus } from '@/lib/events';
-import { humanize } from '@/lib/format';
+import { humanize, relativeTime } from '@/lib/format';
 import { useMyOrgs, useOrg, useOrgPath } from '@/lib/org';
 import { supabase } from '@/lib/supabase';
 import { useTheme } from '@/lib/theme';
@@ -51,6 +54,7 @@ const NAV: Array<{ to: string; label: string; icon: typeof Activity; end?: boole
   { to: '/patches', label: 'Patches', icon: GitPullRequestArrow },
   { to: '/audits', label: 'Audit Log', icon: ScrollText },
   { to: '/demo', label: 'Demo Lab', icon: FlaskConical },
+  { to: '/notifications', label: 'Notifications', icon: Bell },
   { to: '/members', label: 'Members', icon: Users },
   { to: '/activity', label: 'Activity', icon: History, role: 'admin' },
   { to: '/settings', label: 'Settings', icon: Settings },
@@ -154,6 +158,67 @@ function LiveIndicator() {
   );
 }
 
+/** Unread count stays live: the SSE stream invalidates the inbox on notification.created. */
+function NotificationBell() {
+  const { slug, api } = useOrg();
+  const p = useOrgPath();
+  const inbox = useQuery({ queryKey: keys.inbox(slug), queryFn: () => api.inbox(100) });
+  const unread = inbox.data?.unreadCount ?? 0;
+  const latest = inbox.data?.items.slice(0, 5) ?? [];
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button
+          variant="ghost"
+          size="icon"
+          className="relative"
+          aria-label={unread ? `Notifications (${unread} unread)` : 'Notifications'}
+        >
+          <Bell />
+          {unread > 0 && (
+            <span
+              data-testid="unread-count"
+              className="absolute -top-0.5 -right-0.5 grid h-4 min-w-4 place-items-center rounded-full bg-destructive px-1 text-[10px] font-semibold text-white"
+            >
+              {unread > 99 ? '99+' : unread}
+            </span>
+          )}
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" className="w-80">
+        <DropdownMenuLabel className="flex items-center justify-between">
+          Notifications
+          {unread > 0 && <span className="text-xs font-normal text-muted-foreground">{unread} unread</span>}
+        </DropdownMenuLabel>
+        <DropdownMenuSeparator />
+        {latest.length ? (
+          latest.map((item) => (
+            <DropdownMenuItem key={item.id} asChild>
+              <Link to={item.link ?? p('/notifications')} className="flex items-start gap-2">
+                <span
+                  className={cn('mt-1.5 size-2 shrink-0 rounded-full', item.readAt ? 'bg-transparent' : 'bg-primary')}
+                />
+                <span className="min-w-0 flex-1">
+                  <span className={cn('block truncate text-sm', !item.readAt && 'font-semibold')}>{item.title}</span>
+                  <span className="block text-xs text-muted-foreground">{relativeTime(item.createdAt)}</span>
+                </span>
+              </Link>
+            </DropdownMenuItem>
+          ))
+        ) : (
+          <p className="px-2 py-4 text-center text-sm text-muted-foreground">You&apos;re all caught up</p>
+        )}
+        <DropdownMenuSeparator />
+        <DropdownMenuItem asChild>
+          <Link to={p('/notifications')} className="justify-center text-sm font-medium">
+            View all notifications
+          </Link>
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
 function ThemeToggle() {
   const { theme, setTheme } = useTheme();
   const next = theme === 'light' ? 'dark' : theme === 'dark' ? 'system' : 'light';
@@ -214,6 +279,7 @@ export function AppLayout() {
           </Sheet>
           <div className="flex-1" />
           <LiveIndicator />
+          <NotificationBell />
           <ThemeToggle />
           <UserMenu />
         </header>

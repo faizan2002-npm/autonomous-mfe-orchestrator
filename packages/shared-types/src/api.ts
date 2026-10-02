@@ -1,6 +1,11 @@
 // Response shapes of the gateway's dashboard API. Plain data only, so browsers can import them.
 import type {
   ConsumerKind,
+  DeliveryChannel,
+  DeliveryStatus,
+  EndpointType,
+  NotificationChannel,
+  NotificationEvent,
   ContractSource,
   DriftType,
   GovernanceStatus,
@@ -208,6 +213,13 @@ export type GatewayEvent = EventBase &
         invitedBy: string;
       }
     | {
+        /** Delivered only to `userId`'s dashboard sessions. */
+        type: 'notification.created';
+        userId: string;
+        notificationId: string;
+        title: string;
+      }
+    | {
         type: 'request.proxied';
         contract: ContractRefView;
         status: number;
@@ -331,4 +343,59 @@ export interface ConsumerView {
   serviceIds: string[];
   keys: ConsumerKeyView[];
   createdAt: Timestamp;
+}
+
+// ---- Notifications ------------------------------------------------------------------------
+
+export interface NotificationView {
+  id: string;
+  event: NotificationEvent;
+  title: string;
+  body: string;
+  /** Dashboard path to open, e.g. /o/acme/patches/<id>. */
+  link: string | null;
+  readAt: Timestamp | null;
+  createdAt: Timestamp;
+}
+
+export interface Inbox {
+  items: NotificationView[];
+  unreadCount: number;
+}
+
+/** Which personal channels each event uses for the signed-in member. */
+export type NotificationPreferences = Record<NotificationEvent, NotificationChannel[]>;
+
+export interface NotificationEndpointView {
+  id: string;
+  type: EndpointType;
+  name: string;
+  /** Host only; the full URL (often a secret for Slack) is never returned. */
+  urlHost: string;
+  events: NotificationEvent[];
+  enabled: boolean;
+  createdAt: Timestamp;
+}
+
+/** Returned once when a webhook endpoint is created: the signing secret. */
+export interface CreatedEndpoint extends NotificationEndpointView {
+  signingSecret: string | null;
+}
+
+export interface DeliveryView {
+  id: string;
+  channel: DeliveryChannel;
+  event: NotificationEvent | 'member.invited' | 'test';
+  /** Email address, endpoint name or "browser". */
+  target: string;
+  status: DeliveryStatus;
+  attempts: number;
+  lastError: string | null;
+  createdAt: Timestamp;
+  sentAt: Timestamp | null;
+}
+
+export interface PushConfig {
+  enabled: boolean;
+  publicKey: string | null;
 }
