@@ -1,4 +1,3 @@
-import { ConfigService } from '@nestjs/config';
 import {
   Inject,
   Injectable,
@@ -7,14 +6,18 @@ import {
   type OnApplicationShutdown,
 } from '@nestjs/common';
 import { Redis } from 'ioredis';
+import {
+  GATEWAY_CONFIG,
+  type GatewayConfig,
+} from '../config/gateway-config.js';
 
 @Injectable()
 export class RedisService implements OnModuleInit, OnApplicationShutdown {
   private readonly logger = new Logger(RedisService.name);
   readonly client: Redis;
 
-  constructor(@Inject(ConfigService) config: ConfigService) {
-    this.client = new Redis(config.getOrThrow<string>('REDIS_URL'), {
+  constructor(@Inject(GATEWAY_CONFIG) config: GatewayConfig) {
+    this.client = new Redis(config.redisUrl, {
       lazyConnect: true,
       connectTimeout: 5_000,
       commandTimeout: 5_000,

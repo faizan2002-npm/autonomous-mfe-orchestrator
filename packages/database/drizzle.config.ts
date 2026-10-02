@@ -1,4 +1,4 @@
-import { getDatabaseUrl } from '@orchestrator/config';
+import { getMigrationDatabaseUrl, withSslMode } from '@orchestrator/config';
 import { defineConfig } from 'drizzle-kit';
 
 export default defineConfig({
@@ -6,7 +6,7 @@ export default defineConfig({
   out: './migrations',
   dialect: 'postgresql',
   dbCredentials: {
-    url: getDatabaseUrl(),
+    url: withSslMode(getMigrationDatabaseUrl()),
   },
   verbose: true,
   strict: true,

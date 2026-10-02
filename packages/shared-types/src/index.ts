@@ -1,52 +1,45 @@
-export type HttpMethod = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
+// Domain vocabulary shared by the drift engine and the database enums.
+// Tuples (not plain unions) so the database can build its pgEnums from the same source.
 
-export type DriftType =
-  | 'FIELD_RENAMED'
-  | 'FIELD_DELETED'
-  | 'FIELD_ADDED'
-  | 'TYPE_CHANGED'
-  | 'STRUCTURE_MUTATION'
-  | 'MULTI_FIELD_MUTATION';
+export const DRIFT_TYPES = [
+  'FIELD_RENAMED',
+  'FIELD_DELETED',
+  'FIELD_ADDED',
+  'TYPE_CHANGED',
+  'STRUCTURE_MUTATION',
+  'MULTI_FIELD_MUTATION',
+] as const;
+export type DriftType = (typeof DRIFT_TYPES)[number];
 
-export type Severity = 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL';
+export const SEVERITIES = ['LOW', 'MEDIUM', 'HIGH', 'CRITICAL'] as const;
+export type Severity = (typeof SEVERITIES)[number];
 
-export type PatchStatus =
-  | 'GENERATING'
-  | 'VALIDATED'
-  | 'CANARY'
-  | 'ACTIVE'
-  | 'FAILED'
-  | 'SUPERSEDED'
-  | 'ROLLED_BACK';
+export const SERVICE_STATUSES = [
+  'HEALTHY',
+  'DEGRADED',
+  'DRIFTING',
+  'FAILING',
+] as const;
+export type ServiceStatus = (typeof SERVICE_STATUSES)[number];
 
-export type GovernanceStatus =
-  | 'AUTO_APPROVED'
-  | 'PENDING_REVIEW'
-  | 'APPROVED'
-  | 'REJECTED'
-  | 'ESCALATED';
+export const PATCH_STATUSES = [
+  'GENERATING',
+  'VALIDATED',
+  'CANARY',
+  'ACTIVE',
+  'FAILED',
+  'SUPERSEDED',
+  'ROLLED_BACK',
+] as const;
+export type PatchStatus = (typeof PATCH_STATUSES)[number];
 
-export interface DiffDetail {
-  field: string;
-  expectedType?: string;
-  observedType?: string;
-  change: string;
-}
+export const GOVERNANCE_STATUSES = [
+  'AUTO_APPROVED',
+  'PENDING_REVIEW',
+  'APPROVED',
+  'REJECTED',
+  'ESCALATED',
+] as const;
+export type GovernanceStatus = (typeof GOVERNANCE_STATUSES)[number];
 
-export interface DriftDetectionResult {
-  isDrift: boolean;
-  driftCoefficient: number;
-  jaccardSimilarity: number;
-  driftType?: DriftType;
-  severity?: Severity;
-  isBreaking: boolean;
-  diffDetails: DiffDetail[];
-}
-
-export interface AdapterGenerationResult {
-  code: string;
-  confidenceScore: number;
-  reasoningTrace: string;
-  syntaxValid: boolean;
-  executionVerified: boolean;
-}
+export * from './api.js';

@@ -1,11 +1,7 @@
+import { SERVICE_STATUSES } from '@orchestrator/shared-types';
 import { pgTable, uuid, varchar, timestamp, pgEnum } from 'drizzle-orm/pg-core';
 
-export const serviceStatusEnum = pgEnum('service_status', [
-  'HEALTHY',
-  'DEGRADED',
-  'DRIFTING',
-  'FAILING',
-]);
+export const serviceStatusEnum = pgEnum('service_status', SERVICE_STATUSES);
 
 export const serviceRegistries = pgTable('service_registries', {
   id: uuid('id').defaultRandom().primaryKey(),

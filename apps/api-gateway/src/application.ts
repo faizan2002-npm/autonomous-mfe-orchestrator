@@ -6,6 +6,7 @@ import {
   type NestFastifyApplication,
 } from '@nestjs/platform-fastify';
 import { AppModule } from './app.module.js';
+import { GATEWAY_CONFIG, type GatewayConfig } from './config/gateway-config.js';
 
 export async function createGateway(
   options: { logger?: false; shutdownHooks?: boolean } = {},
@@ -19,7 +20,11 @@ export async function createGateway(
     },
   );
   try {
-    app.enableCors({ origin: true });
+    app.enableCors({
+      origin: app.get<GatewayConfig>(GATEWAY_CONFIG).allowedOrigins,
+      // Lets the micro-frontends read whether a response was healed.
+      exposedHeaders: ['x-orchestrator-healed'],
+    });
     app.useGlobalPipes(
       new ValidationPipe({
         whitelist: true,

@@ -1,13 +1,16 @@
 import {
-  Inject,
-  Controller,
   All,
+  BadGatewayException,
+  Controller,
+  HttpException,
+  Inject,
   Req,
   Res,
-  NotFoundException,
 } from '@nestjs/common';
-import type { FastifyRequest, FastifyReply } from 'fastify';
+import type { FastifyReply, FastifyRequest } from 'fastify';
 import { ProxyService } from './proxy.service.js';
+
+const CANARY_HEADER = 'x-mfe-canary';
 
 @Controller()
 export class ProxyController {
@@ -22,27 +25,30 @@ export class ProxyController {
       '*': string;
     };
     const queryStart = req.url.indexOf('?');
-    const query = queryStart === -1 ? '' : req.url.slice(queryStart);
     try {
-      const isCanary =
-        req.headers['x-mfe-canary'] === 'true' || Math.random() < 0.1;
       const result = await this.proxyService.forward({
         service,
         subPath,
         method: req.method,
-        query,
+        query: queryStart === -1 ? '' : req.url.slice(queryStart),
         body: req.body,
-        isCanary,
+        canary: parseCanaryHeader(req.headers[CANARY_HEADER]),
       });
       if (result.isPatched) res.header('x-orchestrator-healed', 'true');
       return res.status(result.status).send(result.payload);
     } catch (error: unknown) {
-      if (error instanceof NotFoundException)
-        return res.status(404).send({ error: error.message });
-      return res.status(502).send({
-        error: `Bad Gateway forwarding to ${service}`,
-        details: String(error),
+      if (error instanceof HttpException) throw error;
+      throw new BadGatewayException(`Bad Gateway forwarding to ${service}`, {
+        description: String(error),
       });
     }
   }
+}
+
+function parseCanaryHeader(
+  value: string | string[] | undefined,
+): boolean | undefined {
+  if (value === 'true') return true;
+  if (value === 'false') return false;
+  return undefined;
 }

@@ -49,7 +49,10 @@ export function flattenPayload(obj: unknown, prefix = ''): FlattenedSchema {
  * Computes Jaccard Similarity between two sets of schema tokens:
  * J(Se, So) = |Se ∩ So| / |Se ∪ So|
  */
-export function computeJaccardSimilarity(expected: FlattenedSchema, observed: FlattenedSchema): number {
+export function computeJaccardSimilarity(
+  expected: FlattenedSchema,
+  observed: FlattenedSchema,
+): number {
   if (expected.size === 0 && observed.size === 0) return 1.0;
   if (expected.size === 0 || observed.size === 0) return 0.0;
 
@@ -67,7 +70,10 @@ export function computeJaccardSimilarity(expected: FlattenedSchema, observed: Fl
 /**
  * Computes Drift Coefficient Dc = 1 - J(Se, So)
  */
-export function computeDriftCoefficient(expected: FlattenedSchema, observed: FlattenedSchema): number {
+export function computeDriftCoefficient(
+  expected: FlattenedSchema,
+  observed: FlattenedSchema,
+): number {
   return 1 - computeJaccardSimilarity(expected, observed);
 }
 
@@ -80,22 +86,20 @@ export interface DetailedDiff {
 /**
  * Generates an analytical breakdown of differences between expected and observed schemas
  */
-export function analyzeSchemaDiff(expected: FlattenedSchema, observed: FlattenedSchema): DetailedDiff {
-  const expectedMap = new Map<string, string>();
-  for (const token of expected) {
-    const [path, type] = token.split(':');
-    expectedMap.set(path, type);
-  }
-
-  const observedMap = new Map<string, string>();
-  for (const token of observed) {
-    const [path, type] = token.split(':');
-    observedMap.set(path, type);
-  }
+export function analyzeSchemaDiff(
+  expected: FlattenedSchema,
+  observed: FlattenedSchema,
+): DetailedDiff {
+  const expectedMap = toPathTypeMap(expected);
+  const observedMap = toPathTypeMap(observed);
 
   const missingFields: string[] = [];
   const addedFields: string[] = [];
-  const typeMismatches: Array<{ path: string; expected: string; observed: string }> = [];
+  const typeMismatches: Array<{
+    path: string;
+    expected: string;
+    observed: string;
+  }> = [];
 
   for (const [path, type] of expectedMap.entries()) {
     if (!observedMap.has(path)) {
@@ -118,5 +122,12 @@ export function analyzeSchemaDiff(expected: FlattenedSchema, observed: Flattened
   return { missingFields, addedFields, typeMismatches };
 }
 
-// Compatibility export for existing consumers.
-export { validateAdapterAst } from '@orchestrator/adapter-runtime';
+/** Splits on the last ':' so field names that contain ':' keep their full path. */
+function toPathTypeMap(schema: FlattenedSchema): Map<string, string> {
+  const map = new Map<string, string>();
+  for (const token of schema) {
+    const separator = token.lastIndexOf(':');
+    map.set(token.slice(0, separator), token.slice(separator + 1));
+  }
+  return map;
+}

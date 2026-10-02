@@ -2,12 +2,13 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
+import { loadGatewayConfig } from '../config/gateway-config.js';
+import { GatewayEventsService } from '../events/gateway-events.service.js';
 import { ProxyService } from './proxy.service.js';
 import type { ObservationService } from '../observation/observation.service.js';
 import type { CanaryService } from '../canary/canary.service.js';
 
 test('proxy observes successful JSON only and forwards body/query through the service', async () => {
-  const previous = process.env.USER_SERVICE_URL;
   const server = createServer(async (req, res) => {
     let body = '';
     for await (const chunk of req) body += chunk;
@@ -17,21 +18,27 @@ test('proxy observes successful JSON only and forwards body/query through the se
     res.end(JSON.stringify({ url: req.url, body }));
   });
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
-  process.env.USER_SERVICE_URL = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
-  let observations = 0;
+  const config = loadGatewayConfig({
+    DATABASE_URL: 'postgresql://localhost/unused',
+    REDIS_URL: 'redis://localhost/unused',
+    USER_SERVICE_URL: `http://127.0.0.1:${(server.address() as AddressInfo).port}`,
+  });
+  const observed: unknown[] = [];
   let patches = 0;
   const service = new ProxyService(
     {
-      observe: async () => {
-        observations++;
+      observe: async (observation: unknown) => {
+        observed.push(observation);
       },
     } as unknown as ObservationService,
     {
-      applyPatchIfActive: (_service: string, payload: unknown) => {
+      applyPatch: (_contract: unknown, payload: unknown) => {
         patches++;
         return { payload, isPatched: false };
       },
     } as unknown as CanaryService,
+    config,
+    new GatewayEventsService(),
   );
   try {
     const success = await service.forward({
@@ -40,13 +47,19 @@ test('proxy observes successful JSON only and forwards body/query through the se
       method: 'POST',
       query: '?page=2',
       body: { name: 'Ada' },
-      isCanary: false,
     });
     assert.deepEqual(success.payload, {
       url: '/api/v1/users?page=2',
       body: '{"name":"Ada"}',
     });
-    assert.equal(observations, 1);
+    assert.deepEqual(observed, [
+      {
+        serviceName: 'user-service',
+        httpMethod: 'POST',
+        endpointPath: '/api/v1/users',
+        observedPayload: success.payload,
+      },
+    ]);
     assert.equal(patches, 1);
     const failed = await service.forward({
       service: 'user-service',
@@ -54,10 +67,9 @@ test('proxy observes successful JSON only and forwards body/query through the se
       method: 'GET',
       query: '',
       body: undefined,
-      isCanary: false,
     });
     assert.equal(failed.status, 500);
-    assert.equal(observations, 1);
+    assert.equal(observed.length, 1);
     assert.equal(patches, 1);
     await assert.rejects(
       service.forward({
@@ -66,13 +78,10 @@ test('proxy observes successful JSON only and forwards body/query through the se
         method: 'GET',
         query: '',
         body: undefined,
-        isCanary: false,
       }),
       /not registered/,
     );
   } finally {
-    if (previous === undefined) delete process.env.USER_SERVICE_URL;
-    else process.env.USER_SERVICE_URL = previous;
     server.closeAllConnections();
     await new Promise<void>((resolve) => server.close(() => resolve()));
   }

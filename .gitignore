@@ -31,3 +31,10 @@ Thumbs.db
 data/
 pgdata/
 redisdata/
+
+# Claude Code background-task worktrees
+.claude/worktrees/
+
+# Playwright output
+test-results/
+playwright-report/

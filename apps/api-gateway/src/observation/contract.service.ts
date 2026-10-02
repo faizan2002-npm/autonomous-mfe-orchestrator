@@ -1,5 +1,4 @@
 import { Inject, Injectable } from '@nestjs/common';
-import { getServiceEndpoints } from '@orchestrator/config';
 import { flattenPayload } from '@orchestrator/core';
 import {
   apiContracts,
@@ -8,15 +7,17 @@ import {
 } from '@orchestrator/database';
 import { and, desc, eq } from 'drizzle-orm';
 import { Redis } from 'ioredis';
+import { contractKey, type ContractRef } from '../common/contract-ref.js';
+import {
+  GATEWAY_CONFIG,
+  type GatewayConfig,
+} from '../config/gateway-config.js';
 import { DRIZZLE_DB } from '../database/database.tokens.js';
 import { REDIS_CLIENT } from '../redis/redis.tokens.js';
 
 const CONTRACT_CACHE_TTL_SECONDS = 86_400;
 
-export interface ObservedResponse {
-  serviceName: string;
-  endpointPath: string;
-  httpMethod: string;
+export interface ObservedResponse extends ContractRef {
   observedPayload: unknown;
 }
 
@@ -31,13 +32,14 @@ export class ContractService {
   constructor(
     @Inject(DRIZZLE_DB) private readonly db: DrizzleDb,
     @Inject(REDIS_CLIENT) private readonly redis: Redis,
+    @Inject(GATEWAY_CONFIG) private readonly config: GatewayConfig,
   ) {}
 
   async getOrCreateBaseline(
     response: ObservedResponse,
   ): Promise<ContractBaseline> {
     // Version the key because the cache now includes the IDs matching the schema.
-    const cacheKey = `contract:v2:${response.serviceName}:${response.httpMethod}:${response.endpointPath}`;
+    const cacheKey = `contract:v2:${contractKey(response)}`;
     const cached = await this.redis.get(cacheKey);
     if (cached) return JSON.parse(cached) as ContractBaseline;
 
@@ -108,7 +110,7 @@ export class ContractService {
       .limit(1);
     if (existing) return existing.id;
 
-    const endpointUrl = getServiceEndpoints()[serviceName];
+    const endpointUrl = this.config.serviceEndpoints[serviceName];
     if (!endpointUrl) throw new Error(`Unknown service: ${serviceName}`);
     await this.db
       .insert(serviceRegistries)

@@ -20,7 +20,7 @@
     "@orchestrator/config": "workspace:*",
     "@orchestrator/core": "workspace:*",
     "@orchestrator/database": "workspace:*",
-    "@orchestrator/ollama-client": "workspace:*",
+    "@orchestrator/gemini-client": "workspace:*",
     "@orchestrator/shared-types": "workspace:*",
     "@orchestrator/upstream-client": "workspace:*",
     "class-transformer": "^0.5.1",
@@ -28,7 +28,7 @@
     "drizzle-orm": "^0.30.10",
     "fastify": "^4.27.0",
     "ioredis": "^5.4.1",
-    "postgres": "^3.4.4",
+    "jose": "^6.2.12",
     "reflect-metadata": "^0.2.2",
     "rxjs": "^7.8.1"
   },

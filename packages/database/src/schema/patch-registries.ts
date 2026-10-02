@@ -1,16 +1,9 @@
+import { PATCH_STATUSES } from '@orchestrator/shared-types';
 import { pgTable, uuid, text, varchar, doublePrecision, integer, timestamp, pgEnum } from 'drizzle-orm/pg-core';
 import { apiContracts } from './api-contracts.js';
 import { driftEvents } from './drift-events.js';
 
-export const patchStatusEnum = pgEnum('patch_status', [
-  'GENERATING',
-  'VALIDATED',
-  'CANARY',
-  'ACTIVE',
-  'FAILED',
-  'SUPERSEDED',
-  'ROLLED_BACK',
-]);
+export const patchStatusEnum = pgEnum('patch_status', PATCH_STATUSES);
 
 export const patchRegistries = pgTable('patch_registries', {
   id: uuid('id').defaultRandom().primaryKey(),

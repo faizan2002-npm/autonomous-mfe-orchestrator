@@ -10,8 +10,7 @@
     "test": "node --test dist/**/*.test.js"
   },
   "dependencies": {
-    "@orchestrator/shared-types": "workspace:*",
-    "@orchestrator/adapter-runtime": "workspace:*"
+    "@orchestrator/shared-types": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "^20.14.0",

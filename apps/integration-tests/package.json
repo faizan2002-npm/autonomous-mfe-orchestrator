@@ -8,12 +8,13 @@
     "test:nest": "node --test nest.test.mjs"
   },
   "devDependencies": {
-    "@orchestrator/gateway": "workspace:*",
-    "@orchestrator/database": "workspace:*",
-    "@orchestrator/ollama-client": "workspace:*",
     "@orchestrator/adapter-runtime": "workspace:*",
+    "@orchestrator/database": "workspace:*",
+    "@orchestrator/gateway": "workspace:*",
+    "@orchestrator/gemini-client": "workspace:*",
     "drizzle-orm": "^0.30.10",
     "ioredis": "^5.4.1",
+    "jose": "^6.2.12",
     "postgres": "^3.4.4"
   }
 }

@@ -1,22 +1,11 @@
+import { DRIFT_TYPES, SEVERITIES } from '@orchestrator/shared-types';
 import { pgTable, uuid, doublePrecision, jsonb, boolean, timestamp, pgEnum } from 'drizzle-orm/pg-core';
 import { serviceRegistries } from './service-registries.js';
 import { apiContracts } from './api-contracts.js';
 
-export const driftTypeEnum = pgEnum('drift_type', [
-  'FIELD_RENAMED',
-  'FIELD_DELETED',
-  'FIELD_ADDED',
-  'TYPE_CHANGED',
-  'STRUCTURE_MUTATION',
-  'MULTI_FIELD_MUTATION',
-]);
+export const driftTypeEnum = pgEnum('drift_type', DRIFT_TYPES);
 
-export const severityEnum = pgEnum('severity', [
-  'LOW',
-  'MEDIUM',
-  'HIGH',
-  'CRITICAL',
-]);
+export const severityEnum = pgEnum('severity', SEVERITIES);
 
 export const driftEvents = pgTable('drift_events', {
   id: uuid('id').defaultRandom().primaryKey(),

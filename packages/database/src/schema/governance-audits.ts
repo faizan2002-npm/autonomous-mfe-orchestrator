@@ -1,14 +1,9 @@
+import { GOVERNANCE_STATUSES } from '@orchestrator/shared-types';
 import { pgTable, uuid, varchar, text, timestamp, pgEnum } from 'drizzle-orm/pg-core';
 import { driftEvents } from './drift-events.js';
 import { patchRegistries } from './patch-registries.js';
 
-export const governanceStatusEnum = pgEnum('governance_status', [
-  'AUTO_APPROVED',
-  'PENDING_REVIEW',
-  'APPROVED',
-  'REJECTED',
-  'ESCALATED',
-]);
+export const governanceStatusEnum = pgEnum('governance_status', GOVERNANCE_STATUSES);
 
 export const governanceAudits = pgTable('governance_audits', {
   id: uuid('id').defaultRandom().primaryKey(),
