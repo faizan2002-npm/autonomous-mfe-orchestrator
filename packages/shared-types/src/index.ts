@@ -81,3 +81,9 @@ export const DELIVERY_STATUSES = ['pending', 'sending', 'sent', 'dead'] as const
 export type DeliveryStatus = (typeof DELIVERY_STATUSES)[number];
 
 export * from './api.js';
+
+export const PATCH_GENERATORS = ['gemini', 'fallback', 'unknown'] as const;
+export type PatchGenerator = (typeof PATCH_GENERATORS)[number];
+
+export const POLICY_ACTIONS = ['promote', 'rollback', 'wait', 'blocked'] as const;
+export type PolicyAction = (typeof POLICY_ACTIONS)[number];

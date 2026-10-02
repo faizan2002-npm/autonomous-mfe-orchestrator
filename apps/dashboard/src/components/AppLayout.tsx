@@ -19,6 +19,7 @@ import {
   ScrollText,
   Server,
   Settings,
+  ShieldCheck,
   Sun,
 } from 'lucide-react';
 import { useQuery } from '@tanstack/react-query';
@@ -52,6 +53,7 @@ const NAV: Array<{ to: string; label: string; icon: typeof Activity; end?: boole
   { to: '/consumers', label: 'Consumers & keys', icon: KeyRound },
   { to: '/drift', label: 'Drift Events', icon: Activity },
   { to: '/patches', label: 'Patches', icon: GitPullRequestArrow },
+  { to: '/policies', label: 'Policies', icon: ShieldCheck },
   { to: '/audits', label: 'Audit Log', icon: ScrollText },
   { to: '/demo', label: 'Demo Lab', icon: FlaskConical },
   { to: '/notifications', label: 'Notifications', icon: Bell },

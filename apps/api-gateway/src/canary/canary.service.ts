@@ -186,6 +186,7 @@ export class CanaryService implements OnApplicationBootstrap {
     orgId: string,
     patchId: string,
     serviceName: string,
+    policy?: string,
   ): Promise<PatchRegistry> {
     const { patch, contract, serviceId } = await this.findPatch(
       orgId,
@@ -223,6 +224,7 @@ export class CanaryService implements OnApplicationBootstrap {
       patchId,
       contract: contractView(contract),
       canaryPercent: 100,
+      ...(policy ? { policy } : {}),
     });
     return promoted;
   }
@@ -231,6 +233,7 @@ export class CanaryService implements OnApplicationBootstrap {
     orgId: string,
     patchId: string,
     serviceName: string,
+    policy?: string,
   ): Promise<PatchRegistry> {
     const { patch, contract, serviceId } = await this.findPatch(
       orgId,
@@ -267,6 +270,7 @@ export class CanaryService implements OnApplicationBootstrap {
       patchId,
       contract: contractView(contract),
       canaryPercent: 0,
+      ...(policy ? { policy } : {}),
     });
     return rolledBack;
   }

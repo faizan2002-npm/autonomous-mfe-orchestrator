@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "test:live": "node --test live.test.mjs nest.test.mjs notifications.test.mjs",
+    "test:live": "node --test live.test.mjs nest.test.mjs notifications.test.mjs policies.test.mjs",
     "test:nest": "node --test nest.test.mjs",
     "test:notifications": "node --test notifications.test.mjs"
   },

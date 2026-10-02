@@ -31,7 +31,10 @@ import type {
   PatchDetail,
   PatchPreview,
   PatchStatus,
+  PatchGenerator,
   PatchView,
+  PolicyOutlook,
+  PromotionPolicyView,
   PublicConfig,
   PushConfig,
   RegisteredService,
@@ -131,6 +134,19 @@ export interface BrowserPushSubscription {
   keys: { p256dh: string; auth: string };
 }
 
+export interface PolicyInput {
+  name?: string;
+  enabled?: boolean;
+  serviceId?: string;
+  consumerId?: string;
+  minCanaryRequests?: number;
+  minCanaryMinutes?: number;
+  maxFailureRate?: number;
+  rollbackFailureRate?: number | null;
+  rollbackMinRequests?: number;
+  allowedGenerators?: PatchGenerator[];
+}
+
 /** Calls that are not tied to one organization. */
 export const accountApi = {
   myOrgs: () => request<OrgSummary[]>('/api/orgs'),
@@ -204,6 +220,13 @@ export function orgApi(slug: string) {
       request<DeliveryView[]>(`${org}/notifications/deliveries${query({ endpointId })}`),
     redeliver: (id: string) => request<void>(`${org}/notifications/deliveries/${id}/redeliver`, json('POST')),
 
+    policies: () => request<PromotionPolicyView[]>(`${org}/policies`),
+    policyOutlook: () => request<PolicyOutlook[]>(`${org}/policies/outlook`),
+    createPolicy: (input: PolicyInput) => request<PromotionPolicyView>(`${org}/policies`, json('POST', input)),
+    updatePolicy: (id: string, input: PolicyInput) =>
+      request<PromotionPolicyView>(`${org}/policies/${id}`, json('PATCH', input)),
+    deletePolicy: (id: string) => request<void>(`${org}/policies/${id}`, json('DELETE')),
+
     stats: () => request<DashboardStats>(`${governance}/stats`),
     config: () => request<PublicConfig>(`${governance}/config`),
     services: () => request<ServiceSummary[]>(`${governance}/services`),
@@ -263,4 +286,6 @@ export const keys = {
   endpoints: (slug: string) => ['org', slug, 'notification-endpoints'] as const,
   deliveries: (slug: string, endpointId?: string) => ['org', slug, 'deliveries', endpointId ?? 'all'] as const,
   pushConfig: ['push-config'] as const,
+  policies: (slug: string) => ['org', slug, 'policies'] as const,
+  policyOutlook: (slug: string) => ['org', slug, 'policies', 'outlook'] as const,
 };

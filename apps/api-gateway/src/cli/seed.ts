@@ -1,6 +1,7 @@
 /**
  * Seeds a ready-to-demo tenant: the Demo Organization, its two mock services, a frontend
- * consumer (acme-portal) and a backend consumer (report-service), each with a fresh key.
+ * consumer (acme-portal) and a backend consumer (report-service), each with a fresh key,
+ * and a conservative org-wide promotion policy.
  *
  *   pnpm db:seed                          # print the new keys
  *   pnpm db:seed --write-env              # store them in .env instead of printing
@@ -18,6 +19,7 @@ import {
   createDatabaseConnection,
   orgInvitations,
   organizations,
+  promotionPolicies,
   serviceRegistries,
 } from '@orchestrator/database';
 import { and, eq, isNull } from 'drizzle-orm';
@@ -188,9 +190,24 @@ try {
     FRONTEND_ORIGINS,
   );
   const reportKey = await issueKey(org.id, reports.id, 'secret', []);
+  // Promotes only well-exercised, failure-free patches; rolls back clearly broken ones.
+  // Reviewers still decide quickly-changing demos, since 30 minutes outlasts a demo run.
+  await db
+    .insert(promotionPolicies)
+    .values({
+      orgId: org.id,
+      scope: '*:*',
+      name: 'Default',
+      minCanaryRequests: 50,
+      minCanaryMinutes: 30,
+      maxFailureRate: 0,
+      rollbackFailureRate: 0.25,
+      rollbackMinRequests: 20,
+    })
+    .onConflictDoNothing();
 
   console.log(
-    `Demo Organization ready (slug "demo"): user-service, order-service, acme-portal, report-service.`,
+    `Demo Organization ready (slug "demo"): user-service, order-service, acme-portal, report-service, Default policy.`,
   );
   if (writeEnv) {
     setEnv({ VITE_MFE_CONSUMER_KEY: portalKey, REPORT_SERVICE_KEY: reportKey });

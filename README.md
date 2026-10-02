@@ -11,6 +11,7 @@ A gateway that sits between micro-frontends and their backend services. It learn
 - [How It Works](#how-it-works)
 - [Organizations, Consumers and Keys](#organizations-consumers-and-keys)
 - [Notifications](#notifications)
+- [Promotion Policies](#promotion-policies)
 - [Tech Stack](#tech-stack)
 - [Quick Start](#quick-start)
 - [Frontend](#frontend)
@@ -91,6 +92,26 @@ Every external delivery goes through a durable Postgres outbox (`notification_de
 - Failures retry with exponential backoff (30 s, 1 min, 2 min…), up to six attempts. Permanent 4xx failures stop immediately.
 - Admins see the delivery log and can **redeliver** any entry.
 - The in-app bell updates live over the event stream, and each member's stream carries only their own notifications.
+
+## Promotion Policies
+
+Reviewers don't have to promote every patch by hand. A **promotion policy** promotes a canary patch to 100% once it has proven itself, and rolls it back when its adapter keeps failing.
+
+| Rule | Meaning |
+|---|---|
+| Canary requests ≥ *n* | Healed canary requests required before promotion |
+| Minutes in canary ≥ *m* | Minimum time since the patch was deployed |
+| Adapter failures ≤ *x%* | Highest failure rate that still allows promotion; above it, a reviewer must decide |
+| Generators | Which engines' patches may auto-promote (Gemini, rule-based fallback) |
+| Roll back at ≥ *y%* after *k* requests | Optional automatic rollback, only once the rate is based on enough traffic |
+
+How policies are applied:
+- **Scope.** A policy covers the whole organization, one service, one consumer, or one service for one consumer. The most specific enabled policy wins. Without a policy, patches wait for a reviewer.
+- **Evaluation.** The evaluator runs every 30 s, under a Redis lock so that only one gateway instance evaluates at a time.
+- **Audit trail.** Decisions go through the same paths as a reviewer's. The audit records `policy:<name>` with the reasoning, and the evidence (requests, failures, time window) is kept in `canary_metrics`.
+- **Notifications.** Members are notified with "promoted by policy" or "rolled back by policy".
+
+The **Policies** page shows every canary patch with its progress toward the thresholds and the policy's next step. `pnpm db:seed` adds a conservative `Default` policy to the Demo Organization: 50 requests, 30 minutes, no failures, and rollback at 25% after 20 requests.
 
 ## Tech Stack
 
@@ -182,6 +203,7 @@ An **org switcher** moves between organizations. Everything lives under `/o/:org
 | **Consumers & keys** | Frontend and backend consumers, the services each may call, keys (issue once, revoke, last used, allowed origins) |
 | **Drift Events** | Filterable history; detail view with the drift coefficient and a field-by-field schema diff |
 | **Patches** | Canary / active / rejected / rolled back / superseded; detail view with the adapter code, generator, sandbox preview, canary traffic, lifecycle and audit trail, plus **Promote** and **Roll back** |
+| **Policies** | Canary patches with progress toward their policy and its next step; organization-, service- and consumer-scoped promotion and rollback rules |
 | **Audit Log** | Every automatic and human patch decision with reviewer and notes |
 | **Demo Lab** | Chaos switches, a request sender (with a consumer key and canary routing), and a live pipeline view |
 | **Notifications** | Inbox; per-event email/push preferences, push on this device and a test send; Slack and webhook integrations with a delivery log and redelivery (admins) |
@@ -296,6 +318,8 @@ Responses: `401` missing/unknown/revoked key, `403` wrong origin or service not 
 | `GET`, `POST`, `PATCH`, `DELETE` | `/notifications/endpoints`, `/notifications/endpoints/:id` | Slack and webhook integrations; webhook signing secret returned once [admin] |
 | `POST` | `/notifications/endpoints/:id/test` | Queue a test delivery [admin] |
 | `GET`, `POST` | `/notifications/deliveries?endpointId=`, `/notifications/deliveries/:id/redeliver` | Delivery log and redelivery [admin] |
+| `GET`, `POST`, `PATCH`, `DELETE` | `/policies`, `/policies/:id` | Promotion policies [viewer read, admin write] |
+| `GET` | `/policies/outlook` | Each canary patch, its governing policy and what it will do next [viewer] |
 | `GET`, `POST` | `/demo/services`, `/demo/services/:name/chaos` | Chaos switch of demo upstreams [viewer / reviewer] |
 
 Only `CANARY` patches can be promoted and only live (`CANARY` or `ACTIVE`) patches can be rolled back; anything else returns `409`. Reviewers recorded in audits come from the verified token, never the request body.
@@ -386,7 +410,8 @@ Created by the migrations in `packages/database/migrations` (pre-tenancy data is
 | `notifications`, `notification_preferences` | Per-member inbox and channel choices |
 | `notification_endpoints`, `push_subscriptions` | Org Slack/webhook integrations (encrypted URLs and secrets) and members' browser push subscriptions |
 | `notification_deliveries` | Outbox of email, push, Slack and webhook deliveries with attempts and errors |
-| `canary_metrics` | Reserved; canary traffic is currently counted in Redis |
+| `promotion_policies` | Automatic promotion and rollback rules per org, service and consumer scope |
+| `canary_metrics` | Evidence behind each automatic policy decision (live canary counters are in Redis) |
 
 ## Testing
 
@@ -402,7 +427,7 @@ The integration and e2e commands need Docker. The Gemini tests run only when `TE
 The e2e test drives Google Chrome through three journeys:
 - signed-out redirects;
 - a new user's onboarding (organization, service, consumer key that works through the gateway);
-- an invited owner joining the seeded Demo Organization, where drift crashes the profile card, a canary request heals it, the notification bell lights up live, the patch is previewed and promoted, and the audit records the reviewer.
+- an invited owner joining the seeded Demo Organization, where drift crashes the profile card, a canary request heals it, the notification bell lights up live, the Policies page shows the seeded policy gathering evidence, the patch is previewed and promoted, and the audit records the reviewer.
 
 Stop `pnpm dev` first, since it uses the same ports.
 
@@ -412,6 +437,12 @@ The integration suite covers tenant isolation (non-members get 404, keys can't c
 - signed webhooks verified by a local receiver;
 - encrypted, VAPID-signed web push to a local HTTPS push service, with pruning of gone subscriptions;
 - outbox retry and redelivery.
+
+A policies suite covers:
+- scoping (most specific wins), validation and roles;
+- automatic promotion and rollback through the audited paths;
+- evidence snapshots;
+- the Redis lock, which lets exactly one of two concurrent evaluators run.
 
 Integration and e2e tests always start their own throwaway containers and never touch the Supabase or Upstash databases in `.env`. Auth tests sign tokens with a locally generated key served from a local JWKS endpoint.
 

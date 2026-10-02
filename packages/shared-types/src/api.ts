@@ -1,5 +1,7 @@
 // Response shapes of the gateway's dashboard API. Plain data only, so browsers can import them.
 import type {
+  PatchGenerator,
+  PolicyAction,
   ConsumerKind,
   DeliveryChannel,
   DeliveryStatus,
@@ -202,6 +204,8 @@ export type GatewayEvent = EventBase &
         patchId: string;
         contract: ContractRefView;
         canaryPercent: number;
+        /** Set when a promotion policy, not a person, made the decision. */
+        policy?: string;
       }
     | {
         /** Internal: carries the invitation link for the email sender; never streamed to browsers. */
@@ -398,4 +402,55 @@ export interface DeliveryView {
 export interface PushConfig {
   enabled: boolean;
   publicKey: string | null;
+}
+
+// ---- Promotion policies --------------------------------------------------------------------
+
+export interface PromotionPolicyView {
+  id: string;
+  name: string;
+  enabled: boolean;
+  /** null = every service / every consumer. The most specific enabled policy wins. */
+  serviceId: string | null;
+  serviceName: string | null;
+  consumerId: string | null;
+  consumerName: string | null;
+  /** Healed canary requests required before promotion. */
+  minCanaryRequests: number;
+  /** Minutes a patch must have been in canary before promotion. */
+  minCanaryMinutes: number;
+  /** Highest adapter-failure rate (0–1) that still allows promotion. */
+  maxFailureRate: number;
+  /** Adapter-failure rate (0–1) that rolls the patch back; null = never auto-rollback. */
+  rollbackFailureRate: number | null;
+  /** Requests needed before the rollback rate is trusted. */
+  rollbackMinRequests: number;
+  /** Generators whose patches may be auto-promoted. */
+  allowedGenerators: PatchGenerator[];
+  createdAt: Timestamp;
+  updatedAt: Timestamp;
+}
+
+export interface PolicyProgress {
+  canaryRequests: number;
+  adapterFailures: number;
+  failureRate: number;
+  minutesInCanary: number;
+}
+
+export interface PolicyDecision {
+  action: PolicyAction;
+  /** Human-readable reasoning, recorded in the audit trail. */
+  reason: string;
+  progress: PolicyProgress;
+}
+
+/** What the evaluator will do for one canary patch, right now. */
+export interface PolicyOutlook {
+  patchId: string;
+  contract: ContractRefView;
+  generator: PatchGenerator;
+  deployedAt: Timestamp | null;
+  policy: Pick<PromotionPolicyView, 'id' | 'name' | 'minCanaryRequests' | 'minCanaryMinutes' | 'maxFailureRate' | 'rollbackFailureRate'> | null;
+  decision: PolicyDecision | null;
 }

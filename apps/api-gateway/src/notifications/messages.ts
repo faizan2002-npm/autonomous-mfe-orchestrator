@@ -49,16 +49,20 @@ export function toMessage(event: GatewayEvent): NotificationMessage | null {
     case 'patch.promoted':
       return {
         event: 'patch.promoted',
-        title: `Patch promoted: ${event.contract.serviceName}`,
-        body: `All of ${event.contract.consumerName}'s traffic to ${where(event.contract)} is now healed.`,
+        title: `Patch promoted${event.policy ? ' by policy' : ''}: ${event.contract.serviceName}`,
+        body:
+          `All of ${event.contract.consumerName}'s traffic to ${where(event.contract)} is now healed.` +
+          (event.policy ? ` Promoted automatically by the "${event.policy}" policy.` : ''),
         path: `/patches/${event.patchId}`,
         audience: 'members',
       };
     case 'patch.rolledBack':
       return {
         event: 'patch.rolled_back',
-        title: `Patch rolled back: ${event.contract.serviceName}`,
-        body: `${event.contract.consumerName}'s traffic to ${where(event.contract)} passes through unpatched again.`,
+        title: `Patch rolled back${event.policy ? ' by policy' : ''}: ${event.contract.serviceName}`,
+        body:
+          `${event.contract.consumerName}'s traffic to ${where(event.contract)} passes through unpatched again.` +
+          (event.policy ? ` The "${event.policy}" policy rolled it back after adapter failures.` : ''),
         path: `/patches/${event.patchId}`,
         audience: 'members',
       };

@@ -31,6 +31,7 @@ const PatchesPage = page(() => import('@/pages/PatchesPage'), 'PatchesPage');
 const PatchDetailPage = page(() => import('@/pages/PatchesPage'), 'PatchDetailPage');
 const AuditsPage = page(() => import('@/pages/AuditsPage'), 'AuditsPage');
 const DemoLabPage = page(() => import('@/pages/DemoLabPage'), 'DemoLabPage');
+const PoliciesPage = page(() => import('@/pages/PoliciesPage'), 'PoliciesPage');
 const NotificationsPage = page(() => import('@/pages/NotificationsPage'), 'NotificationsPage');
 const MembersPage = page(() => import('@/pages/MembersPage'), 'MembersPage');
 const ActivityPage = page(() => import('@/pages/ActivityPage'), 'ActivityPage');
@@ -89,6 +90,7 @@ export function App() {
                     <Route path="drift/:id" element={<DriftDetailPage />} />
                     <Route path="patches" element={<PatchesPage />} />
                     <Route path="patches/:id" element={<PatchDetailPage />} />
+                    <Route path="policies" element={<PoliciesPage />} />
                     <Route path="audits" element={<AuditsPage />} />
                     <Route path="demo" element={<DemoLabPage />} />
                     <Route path="notifications" element={<NotificationsPage />} />

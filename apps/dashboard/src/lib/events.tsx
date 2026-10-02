@@ -49,6 +49,7 @@ export function invalidateFor(event: StreamedEvent, queries: QueryClient, slug: 
       invalidate([...org, 'drift-events']);
       invalidate([...org, 'drift-event']);
       invalidate(keys.audits(slug));
+      invalidate(keys.policyOutlook(slug));
       return;
     case 'notification.created':
       // The gateway only streams a member their own notifications.

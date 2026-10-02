@@ -58,6 +58,32 @@ export class GovernanceService {
     );
   }
 
+  /** A promotion policy's automatic decision, audited under `policy:<name>`. */
+  async applyPolicyDecision(
+    orgId: string,
+    patchId: string,
+    serviceName: string,
+    action: 'promote' | 'rollback',
+    policyName: string,
+    reasoning: string,
+  ): Promise<PatchRegistry> {
+    const patch =
+      action === 'promote'
+        ? await this.canaryService.promotePatch(orgId, patchId, serviceName, policyName)
+        : await this.canaryService.rollbackPatch(orgId, patchId, serviceName, policyName);
+    await this.db.insert(governanceAudits).values({
+      orgId: patch.orgId,
+      driftEventId: patch.driftEventId,
+      patchId: patch.id,
+      status: action === 'promote' ? 'APPROVED' : 'REJECTED',
+      reasoningTrace: reasoning,
+      reviewer: `policy:${policyName}`,
+      reviewNotes: action === 'promote' ? 'Promoted automatically by policy.' : 'Rolled back automatically by policy.',
+      reviewedAt: new Date(),
+    });
+    return patch;
+  }
+
   private async audit(
     patch: PatchRegistry,
     status: GovernanceStatus,

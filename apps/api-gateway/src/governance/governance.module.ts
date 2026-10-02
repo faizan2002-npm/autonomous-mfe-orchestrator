@@ -10,5 +10,6 @@ import { GovernanceService } from './governance.service.js';
   imports: [DatabaseModule, CanaryModule, ObservationModule],
   providers: [GovernanceService, GovernanceQueryService],
   controllers: [GovernanceController],
+  exports: [GovernanceService],
 })
 export class GovernanceModule {}

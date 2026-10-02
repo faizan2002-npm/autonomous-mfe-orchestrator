@@ -1,4 +1,5 @@
 import type { DetailedDiff } from '@orchestrator/core';
+import type { PatchGenerator } from '@orchestrator/shared-types';
 import type { ContractRef } from '../common/contract-ref.js';
 
 export interface PatchGenerationTask extends ContractRef {
@@ -19,7 +20,7 @@ export interface SavedPatch {
   adapterCode: string;
 }
 
-export type PatchGenerator = 'gemini' | 'fallback' | 'unknown';
+export type { PatchGenerator };
 
 /** Recovers which engine wrote an adapter from its audit reasoning trace. */
 export function generatorOf(
