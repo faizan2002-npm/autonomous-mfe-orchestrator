@@ -39,7 +39,7 @@ pnpm install
 docker compose up -d
 
 # 5. Run database migrations via Drizzle Kit (Supabase / Postgres)
-pnpm --filter @orchestrator/database run db:generate
+pnpm db:migrate
 
 # 6. Start development environment
 pnpm dev
