@@ -5,6 +5,7 @@ import {
   computeJaccardSimilarity,
   computeDriftCoefficient,
   analyzeSchemaDiff,
+  applyPins,
   assessDrift,
 } from './index.js';
 
@@ -91,5 +92,46 @@ test('type changes are classified as TYPE_CHANGED', () => {
   assert.equal(
     assessDrift(['id:number'], { id: '12' }, 0)?.type,
     'TYPE_CHANGED',
+  );
+});
+
+test('pinned fields limit drift to what a consumer depends on', () => {
+  const expected = [
+    'id:number',
+    'name:string',
+    'profile.bio:string',
+    'profile.avatar:string',
+  ];
+  const renamedAvatar = {
+    id: 1,
+    name: 'Ada',
+    profile: { bio: 'hi', avatar_url: 'a.png' },
+  };
+  assert.equal(assessDrift(expected, renamedAvatar, 0)?.isBreaking, true);
+  // A consumer that only reads id and name is unaffected.
+  assert.equal(
+    assessDrift(expected, renamedAvatar, 0, {
+      required: ['id', 'name'],
+      ignored: [],
+    }),
+    null,
+  );
+  // Ignoring the avatar subtree also hides the rename.
+  assert.equal(
+    assessDrift(expected, renamedAvatar, 0, {
+      required: [],
+      ignored: ['profile.avatar', 'profile.avatar_url'],
+    }),
+    null,
+  );
+  // A pin on a parent covers its children and array items.
+  assert.deepEqual(
+    [
+      ...applyPins(['profile.bio:string', 'tags[]:string', 'id:number'], {
+        required: ['profile', 'tags'],
+        ignored: [],
+      }),
+    ],
+    ['profile.bio:string', 'tags[]:string'],
   );
 });

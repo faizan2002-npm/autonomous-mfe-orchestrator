@@ -1,10 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { loadGatewayConfig } from '../config/gateway-config.js';
+import type { OrgSettingsService } from '../orgs/org-settings.service.js';
 import { InferenceService } from './inference.service.js';
 import type { PatchGenerationTask } from './patch-generation.js';
 
-test('without a Gemini key the deterministic fallback is used and no request is made', async () => {
+test('without a Gemini key for the org the deterministic fallback is used and no request is made', async () => {
   const originalFetch = globalThis.fetch;
   let requests = 0;
   globalThis.fetch = (async () => {
@@ -12,15 +12,20 @@ test('without a Gemini key the deterministic fallback is used and no request is 
     throw new Error('unexpected network call');
   }) as typeof fetch;
   try {
-    const service = new InferenceService(
-      loadGatewayConfig({
-        DATABASE_URL: 'postgresql://localhost/unused',
-        REDIS_URL: 'redis://localhost/unused',
+    const settings = {
+      effective: async () => ({
+        driftThreshold: 0.15,
+        canaryPercent: 10,
+        gemini: { model: 'gemini-test' },
       }),
-    );
+    } as unknown as OrgSettingsService;
+    const service = new InferenceService(settings);
     const task: PatchGenerationTask = {
       driftEventId: 'event',
       contractId: 'contract',
+      orgId: 'org',
+      consumerId: 'consumer',
+      consumerName: 'web',
       serviceName: 'user-service',
       httpMethod: 'GET',
       endpointPath: '/api/v1/users/:id',

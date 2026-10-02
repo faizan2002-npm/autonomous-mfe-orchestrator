@@ -1,13 +1,19 @@
 import { QueryClient } from '@tanstack/react-query';
-import type { GatewayEvent } from '@orchestrator/shared-types';
+import type { StreamedEvent } from '@orchestrator/shared-types';
 import { expect, test, vi } from 'vitest';
 
 vi.mock('./supabase', () => ({ accessToken: vi.fn(), supabase: { auth: {} } }));
 const { invalidateFor } = await import('./events');
 
-const contract = { serviceName: 'user-service', httpMethod: 'GET', endpointPath: '/api/v1/users/:id' };
+const contract = {
+  serviceName: 'user-service',
+  httpMethod: 'GET',
+  endpointPath: '/api/v1/users/:id',
+  consumerId: 'c1',
+  consumerName: 'web',
+};
 
-function invalidatedKeys(event: GatewayEvent) {
+function invalidatedKeys(event: StreamedEvent) {
   const queries = new QueryClient();
   const spy = vi.spyOn(queries, 'invalidateQueries');
   invalidateFor(event, queries);
@@ -18,6 +24,7 @@ test('patch events refresh the patch, lists, stats and audits', () => {
   const keys = invalidatedKeys({
     type: 'patch.promoted',
     at: new Date().toISOString(),
+    orgId: 'org-1',
     patchId: 'p1',
     contract,
     canaryPercent: 100,
@@ -31,6 +38,7 @@ test('drift events refresh stats, services and drift lists only', () => {
   const keys = invalidatedKeys({
     type: 'drift.detected',
     at: new Date().toISOString(),
+    orgId: 'org-1',
     driftEventId: 'd1',
     contract,
     driftType: 'FIELD_RENAMED',

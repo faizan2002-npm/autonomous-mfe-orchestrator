@@ -1,8 +1,5 @@
-import {
-  getDatabaseUrl,
-  getRedisUrl,
-  getServiceEndpoints,
-} from '@orchestrator/config';
+import { getDatabaseUrl, getRedisUrl } from '@orchestrator/config';
+import { parseKey } from '@orchestrator/crypto';
 
 export const GATEWAY_CONFIG = Symbol('GATEWAY_CONFIG');
 
@@ -10,7 +7,6 @@ export interface GatewayConfig {
   port: number;
   databaseUrl: string;
   redisUrl: string;
-  serviceEndpoints: Readonly<Record<string, string>>;
   /** Drift coefficient above which a response counts as drifted (0..1). */
   driftThreshold: number;
   /** Share of traffic a freshly deployed patch receives before promotion (0..100). */
@@ -21,6 +17,16 @@ export interface GatewayConfig {
   supabaseUrl?: string;
   /** Browser origins allowed to call the gateway (dashboard, shell, remotes). */
   allowedOrigins: string[];
+  /** Public URL of the dashboard, used in invitation and notification links. */
+  appUrl: string;
+  /** AES-256-GCM key for secrets stored in the database. */
+  encryptionKey: Buffer;
+  /** HMAC pepper for API keys and invitation tokens. */
+  keyPepper: Buffer;
+  /** Lets org services point at private addresses (local development and demos only). */
+  allowPrivateUpstreams: boolean;
+  /** Proxied requests allowed per API key per minute. */
+  rateLimitPerMinute: number;
 }
 
 const DEFAULT_ALLOWED_ORIGINS = [
@@ -51,7 +57,6 @@ export function loadGatewayConfig(env: Environment): GatewayConfig {
     port: readNumber(env, 'GATEWAY_PORT', 4000, 1, 65535, true),
     databaseUrl,
     redisUrl,
-    serviceEndpoints: getServiceEndpoints(env),
     driftThreshold: readNumber(env, 'DRIFT_SIMILARITY_THRESHOLD', 0.15, 0, 1),
     canaryPercent: readNumber(env, 'CANARY_TRAFFIC_PERCENTAGE', 10, 0, 100),
     gemini: {
@@ -60,7 +65,33 @@ export function loadGatewayConfig(env: Environment): GatewayConfig {
     },
     supabaseUrl,
     allowedOrigins,
+    appUrl: readUrl(env, 'APP_URL', 'http://localhost:5100'),
+    encryptionKey: parseKey('ENCRYPTION_KEY', env.ENCRYPTION_KEY),
+    keyPepper: parseKey('KEY_PEPPER', env.KEY_PEPPER),
+    allowPrivateUpstreams: readBoolean(env, 'ALLOW_PRIVATE_UPSTREAMS'),
+    rateLimitPerMinute: readNumber(
+      env,
+      'RATE_LIMIT_PER_MINUTE',
+      600,
+      1,
+      1_000_000,
+      true,
+    ),
   };
+}
+
+function readUrl(env: Environment, name: string, fallback: string): string {
+  const url = env[name]?.trim() || fallback;
+  requireProtocol(name, url, ['http:', 'https:']);
+  return url.replace(/\/$/, '');
+}
+
+function readBoolean(env: Environment, name: string): boolean {
+  const raw = env[name]?.trim().toLowerCase();
+  if (!raw) return false;
+  if (raw === 'true' || raw === '1') return true;
+  if (raw === 'false' || raw === '0') return false;
+  throw new Error(`${name} must be true or false`);
 }
 
 /** SUPABASE_URL wins; otherwise it is derived from the project ref used for the database. */

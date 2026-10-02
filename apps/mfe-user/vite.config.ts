@@ -6,6 +6,7 @@ import { defineConfig } from 'vite';
 const PORT = 5001;
 
 export default defineConfig({
+  envDir: new URL('../..', import.meta.url).pathname,
   // Absolute base so the host can load this remote's chunks cross-origin.
   base: `http://localhost:${PORT}/`,
   plugins: [

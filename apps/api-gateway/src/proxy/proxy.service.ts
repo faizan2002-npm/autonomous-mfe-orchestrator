@@ -1,27 +1,45 @@
-import { Inject, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import {
+  ForbiddenException,
+  Inject,
+  Injectable,
+  Logger,
+  NotFoundException,
+} from '@nestjs/common';
 import { requestUpstream } from '@orchestrator/upstream-client';
 import { CanaryService } from '../canary/canary.service.js';
 import {
   contractKey,
-  normalizeEndpointPath,
+  contractView,
   type ContractRef,
 } from '../common/contract-ref.js';
-import {
-  GATEWAY_CONFIG,
-  type GatewayConfig,
-} from '../config/gateway-config.js';
+import type { ResolvedConsumer } from '../consumers/consumers.service.js';
 import { GatewayEventsService } from '../events/gateway-events.service.js';
 import { ObservationService } from '../observation/observation.service.js';
+import { ServiceRegistryService } from '../services/service-registry.service.js';
 
 /** At most one live-feed event per contract per window, so load tests don't flood dashboards. */
 const PROXY_EVENT_WINDOW_MS = 1_000;
 
+/** Client headers worth passing upstream (end-user auth, content negotiation, tracing). */
+const FORWARDED_HEADERS = [
+  'authorization',
+  'accept',
+  'accept-language',
+  'idempotency-key',
+  'x-request-id',
+  'x-correlation-id',
+  'traceparent',
+  'tracestate',
+];
+
 export interface ProxyRequest {
+  consumer: ResolvedConsumer;
   service: string;
   subPath: string;
   method: string;
   query: string;
   body: unknown;
+  headers: Record<string, string | string[] | undefined>;
   /** Forces canary routing on or off; undefined samples by the patch's traffic share. */
   canary?: boolean;
 }
@@ -41,28 +59,44 @@ export class ProxyService {
     @Inject(ObservationService)
     private readonly observationService: ObservationService,
     @Inject(CanaryService) private readonly canaryService: CanaryService,
-    @Inject(GATEWAY_CONFIG) private readonly config: GatewayConfig,
+    @Inject(ServiceRegistryService)
+    private readonly services: ServiceRegistryService,
     @Inject(GatewayEventsService) private readonly events: GatewayEventsService,
   ) {}
 
   async forward(request: ProxyRequest): Promise<ProxyResponse> {
-    const { service, subPath, method, query, body, canary } = request;
-    const baseUrl = this.config.serviceEndpoints[service];
-    if (!baseUrl)
+    const { consumer, subPath, method, query, body, canary } = request;
+    const service = await this.services.resolve(
+      consumer.orgId,
+      request.service,
+    );
+    if (!service)
       throw new NotFoundException(
-        `Service '${service}' not registered in Gateway.`,
+        `Service '${request.service}' is not registered in this organization`,
       );
+    if (!consumer.serviceIds.includes(service.id))
+      throw new ForbiddenException(
+        `Consumer '${consumer.consumerName}' may not call '${service.serviceName}'`,
+      );
+
     const contract: ContractRef = {
-      serviceName: service,
+      orgId: consumer.orgId,
+      consumerId: consumer.consumerId,
+      consumerName: consumer.consumerName,
+      serviceName: service.serviceName,
       httpMethod: method,
       endpointPath: `/api/v1/${subPath}`,
     };
     const response = await requestUpstream({
-      baseUrl,
+      baseUrl: service.baseUrl,
       path: contract.endpointPath,
       method,
       query,
       body,
+      timeoutMs: service.timeoutMs,
+      // Org-configured service credentials win over anything the client sent.
+      headers: { ...pickForwarded(request.headers), ...service.headers },
+      fetch: this.services.guardedFetch,
     });
     // Only successful JSON responses represent the endpoint's data contract.
     if (
@@ -75,7 +109,11 @@ export class ProxyService {
     }
 
     void this.observationService
-      .observe({ ...contract, observedPayload: response.payload })
+      .observe({
+        ...contract,
+        serviceId: service.id,
+        observedPayload: response.payload,
+      })
       .catch((error: unknown) =>
         this.logger.error(`Observation error: ${String(error)}`),
       );
@@ -92,20 +130,28 @@ export class ProxyService {
     status: number,
     isPatched: boolean,
   ): void {
-    const view = {
-      ...contract,
-      httpMethod: contract.httpMethod.toUpperCase(),
-      endpointPath: normalizeEndpointPath(contract.endpointPath),
-    };
-    const key = contractKey(view);
+    const view = contractView(contract);
+    const key = contractKey({ ...contract, ...view });
     const now = Date.now();
     if (now - (this.lastEventAt.get(key) ?? 0) < PROXY_EVENT_WINDOW_MS) return;
     this.lastEventAt.set(key, now);
     this.events.publish({
       type: 'request.proxied',
+      orgId: contract.orgId,
       contract: view,
       status,
       isPatched,
     });
   }
+}
+
+function pickForwarded(
+  headers: ProxyRequest['headers'],
+): Record<string, string> {
+  const picked: Record<string, string> = {};
+  for (const name of FORWARDED_HEADERS) {
+    const value = headers[name];
+    if (typeof value === 'string') picked[name] = value;
+  }
+  return picked;
 }

@@ -12,14 +12,28 @@ test('published events are timestamped and delivered to subscribers', () => {
   events.publish({
     type: 'patch.promoted',
     patchId: 'p1',
-    contract: { serviceName: 's', httpMethod: 'GET', endpointPath: '/x' },
+    contract: {
+      serviceName: 's',
+      httpMethod: 'GET',
+      endpointPath: '/x',
+      consumerId: 'c',
+      consumerName: 'web',
+    },
+    orgId: 'org',
     canaryPercent: 100,
   });
   subscription.unsubscribe();
   events.publish({
     type: 'patch.rolledBack',
     patchId: 'p1',
-    contract: { serviceName: 's', httpMethod: 'GET', endpointPath: '/x' },
+    contract: {
+      serviceName: 's',
+      httpMethod: 'GET',
+      endpointPath: '/x',
+      consumerId: 'c',
+      consumerName: 'web',
+    },
+    orgId: 'org',
     canaryPercent: 0,
   });
   assert.equal(received.length, 1);

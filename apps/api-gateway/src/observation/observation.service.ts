@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import {
+  applyPins,
   assessDrift,
   flattenPayload,
   type DriftAssessment,
@@ -14,16 +15,14 @@ import { eq } from 'drizzle-orm';
 import { Redis } from 'ioredis';
 import {
   contractKey,
+  contractView,
   normalizeEndpointPath,
   type ContractRef,
 } from '../common/contract-ref.js';
-import {
-  GATEWAY_CONFIG,
-  type GatewayConfig,
-} from '../config/gateway-config.js';
 import { DRIZZLE_DB } from '../database/database.tokens.js';
 import { GatewayEventsService } from '../events/gateway-events.service.js';
 import { HealingService } from '../healing/healing.service.js';
+import { OrgSettingsService } from '../orgs/org-settings.service.js';
 import { REDIS_CLIENT } from '../redis/redis.tokens.js';
 import {
   ContractService,
@@ -43,14 +42,15 @@ export class ObservationService {
     @Inject(REDIS_CLIENT) private readonly redis: Redis,
     @Inject(ContractService) private readonly contracts: ContractService,
     @Inject(HealingService) private readonly healing: HealingService,
-    @Inject(GATEWAY_CONFIG) private readonly config: GatewayConfig,
+    @Inject(OrgSettingsService) private readonly settings: OrgSettingsService,
     @Inject(GatewayEventsService) private readonly events: GatewayEventsService,
   ) {
     // A rolled-back patch means the drift is unhandled again: let the next occurrence re-trigger healing.
     this.events.stream().subscribe((event) => {
       if (event.type === 'patch.rolledBack')
-        void this.forgetDrift(event.contract).catch((error: unknown) =>
-          this.logger.warn(`Could not reset drift memory: ${String(error)}`),
+        void this.forgetDrift({ ...event.contract, orgId: event.orgId }).catch(
+          (error: unknown) =>
+            this.logger.warn(`Could not reset drift memory: ${String(error)}`),
         );
     });
   }
@@ -60,28 +60,29 @@ export class ObservationService {
       ...response,
       endpointPath: normalizeEndpointPath(response.endpointPath),
     };
-    const baseline = await this.contracts.getOrCreateBaseline(normalized);
+    const [baseline, settings] = await Promise.all([
+      this.contracts.getOrCreateBaseline(normalized),
+      this.settings.effective(response.orgId),
+    ]);
     const drift = assessDrift(
       baseline.schemaTokens,
       response.observedPayload,
-      this.config.driftThreshold,
+      settings.driftThreshold,
+      baseline.pinnedFields,
     );
     if (!drift) return;
     // Every request with the same drifted shape would otherwise add an event and a patch.
     if (!(await this.claimDrift(normalized, response.observedPayload))) return;
 
     this.logger.warn(
-      `API drift: ${response.serviceName} ${normalized.endpointPath} (${drift.coefficient.toFixed(2)})`,
+      `API drift: ${response.serviceName} ${normalized.endpointPath} for ${response.consumerName} (${drift.coefficient.toFixed(2)})`,
     );
     const eventId = await this.recordDrift(normalized, baseline, drift);
     this.events.publish({
       type: 'drift.detected',
+      orgId: normalized.orgId,
       driftEventId: eventId,
-      contract: {
-        serviceName: normalized.serviceName,
-        httpMethod: normalized.httpMethod,
-        endpointPath: normalized.endpointPath,
-      },
+      contract: contractView(normalized),
       driftType: drift.type,
       severity: drift.severity,
       coefficient: drift.coefficient,
@@ -92,10 +93,15 @@ export class ObservationService {
     this.healing.schedule({
       driftEventId: eventId,
       contractId: baseline.contractId,
+      orgId: normalized.orgId,
+      consumerId: normalized.consumerId,
+      consumerName: normalized.consumerName,
       serviceName: normalized.serviceName,
       httpMethod: normalized.httpMethod,
       endpointPath: normalized.endpointPath,
-      expectedSchema: baseline.schemaTokens,
+      expectedSchema: [
+        ...applyPins(baseline.schemaTokens, baseline.pinnedFields),
+      ],
       diffDetails: drift.diff,
       samplePayload: response.observedPayload,
     });
@@ -103,7 +109,7 @@ export class ObservationService {
 
   /** True only for the first observation of this schema shape within the TTL. */
   private async claimDrift(
-    contract: ContractRef,
+    contract: Omit<ContractRef, 'consumerName'>,
     payload: unknown,
   ): Promise<boolean> {
     const fingerprint = createHash('sha256')
@@ -119,7 +125,9 @@ export class ObservationService {
     return claimed === 'OK';
   }
 
-  private async forgetDrift(contract: ContractRef): Promise<void> {
+  private async forgetDrift(
+    contract: Omit<ContractRef, 'consumerName'>,
+  ): Promise<void> {
     const keys: string[] = [];
     for await (const batch of this.redis.scanStream({
       match: `${driftMemoryPrefix(contract)}*`,
@@ -137,6 +145,8 @@ export class ObservationService {
       const [event] = await transaction
         .insert(driftEvents)
         .values({
+          orgId: response.orgId,
+          consumerId: response.consumerId,
           contractId: baseline.contractId,
           serviceId: baseline.serviceId,
           driftType: drift.type,
@@ -156,6 +166,8 @@ export class ObservationService {
   }
 }
 
-function driftMemoryPrefix(contract: ContractRef): string {
+function driftMemoryPrefix(
+  contract: Omit<ContractRef, 'consumerName'>,
+): string {
   return `drift_seen:${contractKey(contract)}:`;
 }

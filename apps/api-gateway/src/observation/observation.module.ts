@@ -8,6 +8,6 @@ import { ObservationService } from './observation.service.js';
 @Module({
   imports: [DatabaseModule, RedisModule, HealingModule],
   providers: [ContractService, ObservationService],
-  exports: [ObservationService],
+  exports: [ObservationService, ContractService],
 })
 export class ObservationModule {}

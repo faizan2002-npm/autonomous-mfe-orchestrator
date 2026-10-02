@@ -7,6 +7,9 @@ import type { CanaryService } from '../canary/canary.service.js';
 
 const task = {
   contractId: 'contract',
+  orgId: 'org',
+  consumerId: 'consumer',
+  consumerName: 'web',
   serviceName: 'users',
   httpMethod: 'GET',
   endpointPath: '/api/v1/users/:id',
@@ -46,6 +49,9 @@ test('healing coalesces pending work and deploys the returned patch ID', async (
       patchId: 'persisted-patch',
       contractId: 'contract',
       contract: {
+        orgId: 'org',
+        consumerId: 'consumer',
+        consumerName: 'web',
         serviceName: 'users',
         httpMethod: 'GET',
         endpointPath: '/api/v1/users/:id',

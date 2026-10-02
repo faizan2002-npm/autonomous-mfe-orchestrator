@@ -2,9 +2,11 @@ import { lazy, Suspense, useEffect, useMemo, useState, type ComponentType, type 
 import { RemoteBoundary } from './RemoteBoundary';
 
 type CanaryMode = 'on' | 'off' | 'sampled';
-type RemoteProps = { gatewayUrl: string; canary?: CanaryMode; refreshKey?: number };
+type RemoteProps = { gatewayUrl: string; apiKey: string; canary?: CanaryMode; refreshKey?: number };
 
 const GATEWAY_URL = import.meta.env.VITE_GATEWAY_URL || 'http://localhost:4000';
+/** This app's publishable consumer key (see `pnpm db:seed --write-env`). */
+const CONSUMER_KEY = import.meta.env.VITE_MFE_CONSUMER_KEY ?? '';
 const DASHBOARD_URL = import.meta.env.VITE_DASHBOARD_URL || 'http://localhost:5100';
 const AUTO_REFRESH_MS = 3_000;
 
@@ -65,7 +67,7 @@ function RemotePanel({
       </header>
       <RemoteBoundary resetKey={refreshKey} fallback={(error) => <CrashPanel error={error} onRetry={onRetry} />}>
         <Suspense fallback={<div className="h-40 animate-pulse rounded-xl bg-slate-100" />}>
-          <Remote gatewayUrl={GATEWAY_URL} canary={canary} refreshKey={refreshKey} />
+          <Remote gatewayUrl={GATEWAY_URL} apiKey={CONSUMER_KEY} canary={canary} refreshKey={refreshKey} />
         </Suspense>
       </RemoteBoundary>
     </section>

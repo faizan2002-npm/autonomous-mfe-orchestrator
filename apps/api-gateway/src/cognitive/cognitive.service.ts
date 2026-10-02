@@ -13,7 +13,7 @@ import {
   patchRegistries,
   type DrizzleDb,
 } from '@orchestrator/database';
-import { contractKey } from '../common/contract-ref.js';
+import { contractKey, contractView } from '../common/contract-ref.js';
 import { DRIZZLE_DB } from '../database/database.tokens.js';
 import { GatewayEventsService } from '../events/gateway-events.service.js';
 import { InferenceService } from './inference.service.js';
@@ -50,11 +50,7 @@ export class CognitiveService {
     const { adapterCode, reasoningTrace } =
       await this.inferenceService.generate(task);
     const verification = verify(adapterCode, task);
-    const contract = {
-      serviceName: task.serviceName,
-      httpMethod: task.httpMethod,
-      endpointPath: task.endpointPath,
-    };
+    const contract = contractView(task);
 
     if (!verification.ok) {
       this.logger.error(`Adapter rejected: ${verification.reason}`);
@@ -66,6 +62,7 @@ export class CognitiveService {
       });
       this.events.publish({
         type: 'patch.rejected',
+        orgId: task.orgId,
         patchId,
         driftEventId: task.driftEventId,
         contract,
@@ -87,6 +84,7 @@ export class CognitiveService {
     });
     this.events.publish({
       type: 'patch.generated',
+      orgId: task.orgId,
       patchId,
       driftEventId: task.driftEventId,
       contract,
@@ -111,6 +109,8 @@ export class CognitiveService {
       const [patch] = await tx
         .insert(patchRegistries)
         .values({
+          orgId: task.orgId,
+          consumerId: task.consumerId,
           contractId: task.contractId,
           driftEventId: task.driftEventId,
           adapterCode,
@@ -120,6 +120,7 @@ export class CognitiveService {
         })
         .returning();
       await tx.insert(governanceAudits).values({
+        orgId: task.orgId,
         driftEventId: task.driftEventId,
         patchId: patch.id,
         status: outcome.auditStatus,

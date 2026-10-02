@@ -1,8 +1,9 @@
 import { Inject, Injectable, NotFoundException } from '@nestjs/common';
 import { executeInSandbox } from '@orchestrator/adapter-runtime';
-import { assessDrift } from '@orchestrator/core';
+import { applyPins, assessDrift } from '@orchestrator/core';
 import {
   apiContracts,
+  consumers,
   driftEvents,
   governanceAudits,
   patchRegistries,
@@ -32,17 +33,15 @@ import {
 import { and, desc, eq, gte, inArray, lt, sql, type SQL } from 'drizzle-orm';
 import { CanaryMetricsService } from '../canary/canary-metrics.service.js';
 import { generatorOf } from '../cognitive/patch-generation.js';
-import {
-  GATEWAY_CONFIG,
-  type GatewayConfig,
-} from '../config/gateway-config.js';
 import { DRIZZLE_DB } from '../database/database.tokens.js';
+import { OrgSettingsService } from '../orgs/org-settings.service.js';
 
 const ENGINE_REVIEWER = 'CognitiveReasoningEngine';
 const DAY_MS = 86_400_000;
 
 export interface DriftEventFilter {
   service?: string;
+  consumerId?: string;
   type?: DriftType;
   limit: number;
   cursor?: string;
@@ -51,19 +50,23 @@ export interface DriftEventFilter {
 export interface PatchFilter {
   status?: PatchStatus;
   service?: string;
+  consumerId?: string;
 }
 
-/** Read models for the dashboard; all writes go through GovernanceService and CanaryService. */
+/**
+ * Read models for the dashboard. Every query is scoped to one organization; all writes go
+ * through GovernanceService and CanaryService.
+ */
 @Injectable()
 export class GovernanceQueryService {
   constructor(
     @Inject(DRIZZLE_DB) private readonly db: DrizzleDb,
-    @Inject(GATEWAY_CONFIG) private readonly config: GatewayConfig,
+    @Inject(OrgSettingsService) private readonly settings: OrgSettingsService,
     @Inject(CanaryMetricsService)
     private readonly metrics: CanaryMetricsService,
   ) {}
 
-  async getStats(): Promise<DashboardStats> {
+  async getStats(orgId: string): Promise<DashboardStats> {
     const since = new Date(Date.now() - DAY_MS);
     const [services, patches, [drift]] = await Promise.all([
       this.db
@@ -72,6 +75,7 @@ export class GovernanceQueryService {
           count: sql<number>`count(*)::int`,
         })
         .from(serviceRegistries)
+        .where(eq(serviceRegistries.orgId, orgId))
         .groupBy(serviceRegistries.status),
       this.db
         .select({
@@ -79,6 +83,7 @@ export class GovernanceQueryService {
           count: sql<number>`count(*)::int`,
         })
         .from(patchRegistries)
+        .where(eq(patchRegistries.orgId, orgId))
         .groupBy(patchRegistries.status),
       this.db
         .select({
@@ -86,7 +91,9 @@ export class GovernanceQueryService {
           breaking: sql<number>`count(*) filter (where ${driftEvents.isBreaking})::int`,
         })
         .from(driftEvents)
-        .where(gte(driftEvents.detectedAt, since)),
+        .where(
+          and(eq(driftEvents.orgId, orgId), gte(driftEvents.detectedAt, since)),
+        ),
     ]);
     return {
       services: countBy(SERVICE_STATUSES, services),
@@ -96,11 +103,12 @@ export class GovernanceQueryService {
     };
   }
 
-  async listServices(): Promise<ServiceSummary[]> {
+  async listServices(orgId: string): Promise<ServiceSummary[]> {
     const [services, contracts, lastDrift] = await Promise.all([
       this.db
         .select()
         .from(serviceRegistries)
+        .where(eq(serviceRegistries.orgId, orgId))
         .orderBy(serviceRegistries.serviceName),
       this.db
         .select({
@@ -108,6 +116,7 @@ export class GovernanceQueryService {
           count: sql<number>`count(*)::int`,
         })
         .from(apiContracts)
+        .where(eq(apiContracts.orgId, orgId))
         .groupBy(apiContracts.serviceId),
       this.db
         .select({
@@ -115,6 +124,7 @@ export class GovernanceQueryService {
           at: sql<Date>`max(${driftEvents.detectedAt})`,
         })
         .from(driftEvents)
+        .where(eq(driftEvents.orgId, orgId))
         .groupBy(driftEvents.serviceId),
     ]);
     const contractCounts = new Map(
@@ -132,30 +142,44 @@ export class GovernanceQueryService {
     }));
   }
 
-  async getService(serviceName: string): Promise<ServiceDetail> {
-    const summary = (await this.listServices()).find(
+  async getService(orgId: string, serviceName: string): Promise<ServiceDetail> {
+    const summary = (await this.listServices(orgId)).find(
       (service) => service.serviceName === serviceName,
     );
     if (!summary)
       throw new NotFoundException(`Unknown service '${serviceName}'`);
     const [contracts, recentDrift] = await Promise.all([
       this.db
-        .select()
+        .select({ contract: apiContracts, consumerName: consumers.name })
         .from(apiContracts)
-        .where(eq(apiContracts.serviceId, summary.id))
-        .orderBy(apiContracts.endpointPath, desc(apiContracts.version)),
-      this.listDriftEvents({ service: serviceName, limit: 20 }),
+        .innerJoin(consumers, eq(apiContracts.consumerId, consumers.id))
+        .where(
+          and(
+            eq(apiContracts.serviceId, summary.id),
+            eq(apiContracts.orgId, orgId),
+          ),
+        )
+        .orderBy(
+          apiContracts.endpointPath,
+          consumers.name,
+          desc(apiContracts.version),
+        ),
+      this.listDriftEvents(orgId, { service: serviceName, limit: 20 }),
     ]);
     return {
       ...summary,
-      contracts: contracts.map((contract): ContractView => ({
+      contracts: contracts.map(({ contract, consumerName }): ContractView => ({
         id: contract.id,
+        consumerId: contract.consumerId,
+        consumerName,
         serviceName,
         httpMethod: contract.httpMethod,
         endpointPath: contract.endpointPath,
         version: contract.version,
         fieldCount: contract.fieldCount,
         schemaTokens: contract.schemaSnapshot as string[],
+        source: contract.source,
+        pinnedFields: contract.pinnedFields ?? null,
         createdAt: contract.createdAt.toISOString(),
       })),
       recentDrift: recentDrift.items,
@@ -163,16 +187,19 @@ export class GovernanceQueryService {
   }
 
   async listDriftEvents(
+    orgId: string,
     filter: DriftEventFilter,
   ): Promise<Page<DriftEventView>> {
-    const conditions: SQL[] = [];
+    const conditions: SQL[] = [eq(driftEvents.orgId, orgId)];
     if (filter.service)
       conditions.push(eq(serviceRegistries.serviceName, filter.service));
+    if (filter.consumerId)
+      conditions.push(eq(driftEvents.consumerId, filter.consumerId));
     if (filter.type) conditions.push(eq(driftEvents.driftType, filter.type));
     if (filter.cursor)
       conditions.push(lt(driftEvents.detectedAt, new Date(filter.cursor)));
     const rows = await this.driftQuery()
-      .where(conditions.length ? and(...conditions) : undefined)
+      .where(and(...conditions))
       .orderBy(desc(driftEvents.detectedAt))
       .limit(filter.limit + 1);
     const items = await this.toDriftViews(rows.slice(0, filter.limit));
@@ -183,42 +210,47 @@ export class GovernanceQueryService {
     };
   }
 
-  async getDriftEvent(id: string): Promise<DriftEventDetail> {
+  async getDriftEvent(orgId: string, id: string): Promise<DriftEventDetail> {
     const [row] = await this.driftQuery()
-      .where(eq(driftEvents.id, id))
+      .where(and(eq(driftEvents.id, id), eq(driftEvents.orgId, orgId)))
       .limit(1);
     if (!row) throw new NotFoundException('Drift event not found');
     const [view] = await this.toDriftViews([row]);
     return {
       ...view,
-      expectedSchema: row.schemaSnapshot as string[],
+      // The consumer's view of the contract: only the fields it has pinned.
+      expectedSchema: [
+        ...applyPins(row.schemaSnapshot as string[], row.pinnedFields),
+      ],
       diff: row.event.diffDetails as SchemaDiff,
       observedPayload: row.event.observedPayload,
     };
   }
 
-  async listPatches(filter: PatchFilter): Promise<PatchView[]> {
-    const conditions: SQL[] = [];
+  async listPatches(orgId: string, filter: PatchFilter): Promise<PatchView[]> {
+    const conditions: SQL[] = [eq(patchRegistries.orgId, orgId)];
     if (filter.status)
       conditions.push(eq(patchRegistries.status, filter.status));
     if (filter.service)
       conditions.push(eq(serviceRegistries.serviceName, filter.service));
+    if (filter.consumerId)
+      conditions.push(eq(patchRegistries.consumerId, filter.consumerId));
     const rows = await this.patchQuery()
-      .where(conditions.length ? and(...conditions) : undefined)
+      .where(and(...conditions))
       .orderBy(desc(patchRegistries.createdAt))
       .limit(100);
     const audits = await this.auditsFor(rows.map((row) => row.patch.id));
     return rows.map((row) => toPatchView(row, audits));
   }
 
-  async getPatch(id: string): Promise<PatchDetail> {
+  async getPatch(orgId: string, id: string): Promise<PatchDetail> {
     const [row] = await this.patchQuery()
-      .where(eq(patchRegistries.id, id))
+      .where(and(eq(patchRegistries.id, id), eq(patchRegistries.orgId, orgId)))
       .limit(1);
     if (!row) throw new NotFoundException('Patch not found');
     const [audits, driftEvent, traffic] = await Promise.all([
       this.auditsFor([id]),
-      this.getDriftEvent(row.patch.driftEventId),
+      this.getDriftEvent(orgId, row.patch.driftEventId),
       this.metrics.traffic(id),
     ]);
     return {
@@ -231,8 +263,8 @@ export class GovernanceQueryService {
   }
 
   /** Runs the adapter on its source drift payload without touching live traffic. */
-  async previewPatch(id: string): Promise<PatchPreview> {
-    const patch = await this.getPatch(id);
+  async previewPatch(orgId: string, id: string): Promise<PatchPreview> {
+    const patch = await this.getPatch(orgId, id);
     const input = patch.driftEvent.observedPayload;
     const result = executeInSandbox(patch.adapterCode, input);
     const residual = result.success
@@ -253,22 +285,31 @@ export class GovernanceQueryService {
     };
   }
 
-  async listAudits(limit: number): Promise<AuditView[]> {
+  async listAudits(orgId: string, limit: number): Promise<AuditView[]> {
     const rows = await this.db
       .select()
       .from(governanceAudits)
+      .where(eq(governanceAudits.orgId, orgId))
       .orderBy(desc(governanceAudits.createdAt))
       .limit(limit);
     return rows.map(toAuditView);
   }
 
-  getPublicConfig(): PublicConfig {
+  async getPublicConfig(orgId: string): Promise<PublicConfig> {
+    const [settings, services] = await Promise.all([
+      this.settings.effective(orgId),
+      this.db
+        .select({ name: serviceRegistries.serviceName })
+        .from(serviceRegistries)
+        .where(eq(serviceRegistries.orgId, orgId))
+        .orderBy(serviceRegistries.serviceName),
+    ]);
     return {
-      driftThreshold: this.config.driftThreshold,
-      canaryPercent: this.config.canaryPercent,
-      geminiModel: this.config.gemini.model,
-      geminiConfigured: Boolean(this.config.gemini.apiKey),
-      services: Object.keys(this.config.serviceEndpoints),
+      driftThreshold: settings.driftThreshold,
+      canaryPercent: settings.canaryPercent,
+      geminiModel: settings.gemini.model,
+      geminiConfigured: Boolean(settings.gemini.apiKey),
+      services: services.map((service) => service.name),
     };
   }
 
@@ -277,9 +318,11 @@ export class GovernanceQueryService {
       .select({
         event: driftEvents,
         serviceName: serviceRegistries.serviceName,
+        consumerName: consumers.name,
         httpMethod: apiContracts.httpMethod,
         endpointPath: apiContracts.endpointPath,
         schemaSnapshot: apiContracts.schemaSnapshot,
+        pinnedFields: apiContracts.pinnedFields,
       })
       .from(driftEvents)
       .innerJoin(apiContracts, eq(driftEvents.contractId, apiContracts.id))
@@ -287,6 +330,7 @@ export class GovernanceQueryService {
         serviceRegistries,
         eq(driftEvents.serviceId, serviceRegistries.id),
       )
+      .innerJoin(consumers, eq(driftEvents.consumerId, consumers.id))
       .$dynamic();
   }
 
@@ -295,6 +339,7 @@ export class GovernanceQueryService {
       .select({
         patch: patchRegistries,
         serviceName: serviceRegistries.serviceName,
+        consumerName: consumers.name,
         httpMethod: apiContracts.httpMethod,
         endpointPath: apiContracts.endpointPath,
       })
@@ -304,6 +349,7 @@ export class GovernanceQueryService {
         serviceRegistries,
         eq(apiContracts.serviceId, serviceRegistries.id),
       )
+      .innerJoin(consumers, eq(patchRegistries.consumerId, consumers.id))
       .$dynamic();
   }
 
@@ -333,6 +379,8 @@ export class GovernanceQueryService {
           serviceName: row.serviceName,
           httpMethod: row.httpMethod,
           endpointPath: row.endpointPath,
+          consumerId: row.event.consumerId,
+          consumerName: row.consumerName,
         },
         driftType: row.event.driftType,
         severity: row.event.severity,
@@ -370,6 +418,8 @@ function toPatchView(row: PatchRow, audits: GovernanceAudit[]): PatchView {
       serviceName: row.serviceName,
       httpMethod: row.httpMethod,
       endpointPath: row.endpointPath,
+      consumerId: row.patch.consumerId,
+      consumerName: row.consumerName,
     },
     driftEventId: row.patch.driftEventId,
     status: row.patch.status,

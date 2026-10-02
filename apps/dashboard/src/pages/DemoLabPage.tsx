@@ -1,4 +1,4 @@
-import type { GatewayEvent } from '@orchestrator/shared-types';
+import type { StreamedEvent } from '@orchestrator/shared-types';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { CheckCircle2, CircleDashed, CircleSlash, ExternalLink, Loader2, Send, Zap } from 'lucide-react';
 import { useState } from 'react';
@@ -48,7 +48,7 @@ async function sendThroughGateway(path: string, canary: CanaryMode): Promise<Pro
 type StepState = 'done' | 'failed' | 'pending';
 
 /** The latest healing run for a service, reconstructed from the live event stream. */
-function pipelineFor(serviceName: string, events: GatewayEvent[]) {
+function pipelineFor(serviceName: string, events: StreamedEvent[]) {
   const drift = events.find((event) => event.type === 'drift.detected' && event.contract.serviceName === serviceName);
   const after = drift
     ? events.filter(
@@ -58,7 +58,7 @@ function pipelineFor(serviceName: string, events: GatewayEvent[]) {
           event.contract.endpointPath === drift.contract.endpointPath,
       )
     : [];
-  const has = (type: GatewayEvent['type']) => after.find((event) => event.type === type);
+  const has = (type: StreamedEvent['type']) => after.find((event) => event.type === type);
   const rejected = has('patch.rejected');
   const patch = has('patch.generated') ?? rejected;
   const steps: Array<{ label: string; state: StepState; detail?: string }> = [

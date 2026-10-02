@@ -17,6 +17,8 @@ export type CanaryMode = 'on' | 'off' | 'sampled';
 
 export interface ProfileCardProps {
   gatewayUrl: string;
+  /** Publishable consumer key for this app (x-orchestrator-key). */
+  apiKey: string;
   canary?: CanaryMode;
   /** Change to refetch. */
   refreshKey?: number;
@@ -28,14 +30,17 @@ interface Loaded {
   healed: boolean;
 }
 
-export default function ProfileCard({ gatewayUrl, canary = 'sampled', refreshKey = 0, userId = 101 }: ProfileCardProps) {
+export default function ProfileCard({ gatewayUrl, apiKey, canary = 'sampled', refreshKey = 0, userId = 101 }: ProfileCardProps) {
   const [state, setState] = useState<Loaded | Error | null>(null);
 
   useEffect(() => {
     const controller = new AbortController();
     fetch(`${gatewayUrl}/api/v1/user-service/users/${userId}`, {
       signal: controller.signal,
-      headers: canary === 'sampled' ? {} : { 'x-mfe-canary': canary === 'on' ? 'true' : 'false' },
+      headers: {
+        'x-orchestrator-key': apiKey,
+        ...(canary === 'sampled' ? {} : { 'x-mfe-canary': canary === 'on' ? 'true' : 'false' }),
+      },
     })
       .then(async (response) => {
         if (!response.ok) throw new Error(`Gateway responded ${response.status}`);
@@ -48,7 +53,7 @@ export default function ProfileCard({ gatewayUrl, canary = 'sampled', refreshKey
         if (!controller.signal.aborted) setState(error instanceof Error ? error : new Error(String(error)));
       });
     return () => controller.abort();
-  }, [gatewayUrl, canary, refreshKey, userId]);
+  }, [gatewayUrl, apiKey, canary, refreshKey, userId]);
 
   if (state instanceof Error) throw state;
   if (!state) return <div className="h-40 animate-pulse rounded-xl bg-slate-100" />;

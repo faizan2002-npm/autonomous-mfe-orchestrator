@@ -9,6 +9,7 @@ import {
 import { executeInSandbox } from '@orchestrator/adapter-runtime';
 import {
   apiContracts,
+  consumers,
   patchRegistries,
   serviceRegistries,
   type DrizzleDb,
@@ -18,15 +19,13 @@ import type { PatchStatus } from '@orchestrator/shared-types';
 import { and, eq, inArray, ne } from 'drizzle-orm';
 import {
   contractKey,
+  contractView,
   normalizeEndpointPath,
   type ContractRef,
 } from '../common/contract-ref.js';
-import {
-  GATEWAY_CONFIG,
-  type GatewayConfig,
-} from '../config/gateway-config.js';
 import { DRIZZLE_DB } from '../database/database.tokens.js';
 import { GatewayEventsService } from '../events/gateway-events.service.js';
+import { OrgSettingsService } from '../orgs/org-settings.service.js';
 import { CanaryMetricsService } from './canary-metrics.service.js';
 
 export interface DeployablePatch {
@@ -42,6 +41,8 @@ interface ActivePatch extends ContractRef {
   canaryPercent: number;
 }
 
+type ContractIdentity = Omit<ContractRef, 'consumerName'>;
+
 const LIVE_STATUSES: PatchStatus[] = ['CANARY', 'ACTIVE'];
 
 /**
@@ -56,7 +57,7 @@ export class CanaryService implements OnApplicationBootstrap {
 
   constructor(
     @Inject(DRIZZLE_DB) private readonly db: DrizzleDb,
-    @Inject(GATEWAY_CONFIG) private readonly config: GatewayConfig,
+    @Inject(OrgSettingsService) private readonly settings: OrgSettingsService,
     @Inject(CanaryMetricsService)
     private readonly metrics: CanaryMetricsService,
     @Inject(GatewayEventsService) private readonly events: GatewayEventsService,
@@ -64,22 +65,9 @@ export class CanaryService implements OnApplicationBootstrap {
 
   // Runs after every onModuleInit, so the database health check has already passed.
   async onApplicationBootstrap(): Promise<void> {
-    const live = await this.db
-      .select({
-        patchId: patchRegistries.id,
-        adapterCode: patchRegistries.adapterCode,
-        canaryPercent: patchRegistries.canaryPercent,
-        serviceName: serviceRegistries.serviceName,
-        httpMethod: apiContracts.httpMethod,
-        endpointPath: apiContracts.endpointPath,
-      })
-      .from(patchRegistries)
-      .innerJoin(apiContracts, eq(patchRegistries.contractId, apiContracts.id))
-      .innerJoin(
-        serviceRegistries,
-        eq(apiContracts.serviceId, serviceRegistries.id),
-      )
-      .where(inArray(patchRegistries.status, LIVE_STATUSES));
+    const live = await this.livePatchQuery().where(
+      inArray(patchRegistries.status, LIVE_STATUSES),
+    );
     for (const patch of live) this.activate(patch);
     if (live.length)
       this.logger.log(
@@ -87,8 +75,22 @@ export class CanaryService implements OnApplicationBootstrap {
       );
   }
 
+  /** Reloads one patch's runtime state from Postgres (e.g. after another instance changed it). */
+  async reloadPatch(patchId: string): Promise<void> {
+    const [patch] = await this.livePatchQuery().where(
+      eq(patchRegistries.id, patchId),
+    );
+    if (!patch) return;
+    const key = contractKey(patch);
+    if (LIVE_STATUSES.includes(patch.status)) this.activate(patch);
+    else if (this.activePatches.get(key)?.patchId === patchId)
+      this.activePatches.delete(key);
+  }
+
   async deployPatch(patch: DeployablePatch): Promise<void> {
-    const { canaryPercent } = this.config;
+    const { canaryPercent } = await this.settings.effective(
+      patch.contract.orgId,
+    );
     await this.db.transaction(async (tx) => {
       await tx
         .update(patchRegistries)
@@ -116,8 +118,9 @@ export class CanaryService implements OnApplicationBootstrap {
     );
     this.events.publish({
       type: 'patch.deployed',
+      orgId: patch.contract.orgId,
       patchId: patch.patchId,
-      contract: patch.contract,
+      contract: contractView(patch.contract),
       canaryPercent,
     });
   }
@@ -127,7 +130,7 @@ export class CanaryService implements OnApplicationBootstrap {
    * `canary` forces the routing decision; leave it undefined to sample by percentage.
    */
   applyPatch(
-    contract: ContractRef,
+    contract: ContractIdentity,
     rawPayload: unknown,
     canary?: boolean,
   ): { payload: unknown; isPatched: boolean } {
@@ -152,16 +155,24 @@ export class CanaryService implements OnApplicationBootstrap {
     return { payload: rawPayload, isPatched: false };
   }
 
-  /** Browser-side copy of a service's live adapters, keyed by "METHOD /path". */
-  getModuleFederationScript(serviceName: string): string {
+  /** Browser-side copy of one consumer's live adapters for a service, keyed by "METHOD /path". */
+  getModuleFederationScript(
+    orgId: string,
+    consumerId: string,
+    serviceName: string,
+  ): string {
     const adapters = [...this.activePatches.values()]
-      .filter((patch) => patch.serviceName === serviceName)
+      .filter(
+        (patch) =>
+          patch.orgId === orgId &&
+          patch.consumerId === consumerId &&
+          patch.serviceName === serviceName,
+      )
       .map(
         (patch) =>
           `${JSON.stringify(`${patch.httpMethod} ${patch.endpointPath}`)}: ${patch.adapterCode}`,
       );
     const name = JSON.stringify(serviceName);
-
     return `
       (function(global) {
         global.__MFE_ORCHESTRATOR_PATCHES__ = global.__MFE_ORCHESTRATOR_PATCHES__ || {};
@@ -172,10 +183,15 @@ export class CanaryService implements OnApplicationBootstrap {
   }
 
   async promotePatch(
+    orgId: string,
     patchId: string,
     serviceName: string,
   ): Promise<PatchRegistry> {
-    const { patch, contract } = await this.findPatch(patchId, serviceName);
+    const { patch, contract, serviceId } = await this.findPatch(
+      orgId,
+      patchId,
+      serviceName,
+    );
     if (patch.status !== 'CANARY')
       throw new ConflictException(
         `Only CANARY patches can be promoted (is ${patch.status})`,
@@ -185,7 +201,7 @@ export class CanaryService implements OnApplicationBootstrap {
       await tx
         .update(serviceRegistries)
         .set({ status: 'HEALTHY', updatedAt: new Date() })
-        .where(eq(serviceRegistries.serviceName, serviceName));
+        .where(eq(serviceRegistries.id, serviceId));
       return tx
         .update(patchRegistries)
         .set({ status: 'ACTIVE', canaryPercent: 100, deployedAt: new Date() })
@@ -203,18 +219,24 @@ export class CanaryService implements OnApplicationBootstrap {
     );
     this.events.publish({
       type: 'patch.promoted',
+      orgId,
       patchId,
-      contract,
+      contract: contractView(contract),
       canaryPercent: 100,
     });
     return promoted;
   }
 
   async rollbackPatch(
+    orgId: string,
     patchId: string,
     serviceName: string,
   ): Promise<PatchRegistry> {
-    const { patch, contract } = await this.findPatch(patchId, serviceName);
+    const { patch, contract, serviceId } = await this.findPatch(
+      orgId,
+      patchId,
+      serviceName,
+    );
     if (!LIVE_STATUSES.includes(patch.status))
       throw new ConflictException(
         `Only live patches can be rolled back (is ${patch.status})`,
@@ -224,7 +246,7 @@ export class CanaryService implements OnApplicationBootstrap {
       await tx
         .update(serviceRegistries)
         .set({ status: 'DRIFTING', updatedAt: new Date() })
-        .where(eq(serviceRegistries.serviceName, serviceName));
+        .where(eq(serviceRegistries.id, serviceId));
       return tx
         .update(patchRegistries)
         .set({
@@ -241,17 +263,44 @@ export class CanaryService implements OnApplicationBootstrap {
     this.logger.log(`Patch ${patchId} rolled back for ${key}.`);
     this.events.publish({
       type: 'patch.rolledBack',
+      orgId,
       patchId,
-      contract,
+      contract: contractView(contract),
       canaryPercent: 0,
     });
     return rolledBack;
   }
 
-  private async findPatch(patchId: string, serviceName: string) {
+  private livePatchQuery() {
+    return this.db
+      .select({
+        patchId: patchRegistries.id,
+        status: patchRegistries.status,
+        adapterCode: patchRegistries.adapterCode,
+        canaryPercent: patchRegistries.canaryPercent,
+        orgId: patchRegistries.orgId,
+        consumerId: patchRegistries.consumerId,
+        consumerName: consumers.name,
+        serviceName: serviceRegistries.serviceName,
+        httpMethod: apiContracts.httpMethod,
+        endpointPath: apiContracts.endpointPath,
+      })
+      .from(patchRegistries)
+      .innerJoin(apiContracts, eq(patchRegistries.contractId, apiContracts.id))
+      .innerJoin(
+        serviceRegistries,
+        eq(apiContracts.serviceId, serviceRegistries.id),
+      )
+      .innerJoin(consumers, eq(patchRegistries.consumerId, consumers.id))
+      .$dynamic();
+  }
+
+  private async findPatch(orgId: string, patchId: string, serviceName: string) {
     const [record] = await this.db
       .select({
         patch: patchRegistries,
+        serviceId: serviceRegistries.id,
+        consumerName: consumers.name,
         endpointPath: apiContracts.endpointPath,
         httpMethod: apiContracts.httpMethod,
       })
@@ -261,9 +310,11 @@ export class CanaryService implements OnApplicationBootstrap {
         serviceRegistries,
         eq(apiContracts.serviceId, serviceRegistries.id),
       )
+      .innerJoin(consumers, eq(patchRegistries.consumerId, consumers.id))
       .where(
         and(
           eq(patchRegistries.id, patchId),
+          eq(patchRegistries.orgId, orgId),
           eq(serviceRegistries.serviceName, serviceName),
         ),
       )
@@ -271,11 +322,14 @@ export class CanaryService implements OnApplicationBootstrap {
     if (!record)
       throw new NotFoundException('Patch not found for this service');
     const contract: ContractRef = {
+      orgId,
+      consumerId: record.patch.consumerId,
+      consumerName: record.consumerName,
       serviceName,
       httpMethod: record.httpMethod,
       endpointPath: record.endpointPath,
     };
-    return { patch: record.patch, contract };
+    return { patch: record.patch, contract, serviceId: record.serviceId };
   }
 
   private activate(patch: ActivePatch): void {

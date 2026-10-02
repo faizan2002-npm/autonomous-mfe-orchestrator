@@ -1,4 +1,4 @@
-import type { GatewayEvent } from '@orchestrator/shared-types';
+import type { StreamedEvent } from '@orchestrator/shared-types';
 import {
   ArrowUpCircle,
   CircleSlash,
@@ -22,7 +22,7 @@ interface Described {
   href?: string;
 }
 
-export function describeEvent(event: GatewayEvent): Described {
+export function describeEvent(event: StreamedEvent): Described {
   const where = `${event.contract.serviceName} · ${contractLabel(event.contract)}`;
   switch (event.type) {
     case 'drift.detected':

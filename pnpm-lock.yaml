@@ -44,6 +44,9 @@ importers:
       '@orchestrator/core':
         specifier: workspace:*
         version: link:../../packages/core
+      '@orchestrator/crypto':
+        specifier: workspace:*
+        version: link:../../packages/crypto
       '@orchestrator/database':
         specifier: workspace:*
         version: link:../../packages/database
@@ -80,6 +83,9 @@ importers:
       rxjs:
         specifier: ^7.8.1
         version: 7.8.2
+      undici:
+        specifier: ^7
+        version: 7.29.0
     devDependencies:
       '@types/node':
         specifier: ^20.14.0
@@ -347,6 +353,15 @@ importers:
       '@orchestrator/shared-types':
         specifier: workspace:*
         version: link:../shared-types
+    devDependencies:
+      '@types/node':
+        specifier: ^20.14.0
+        version: 20.19.43
+      typescript:
+        specifier: ^5.4.5
+        version: 5.9.3
+
+  packages/crypto:
     devDependencies:
       '@types/node':
         specifier: ^20.14.0

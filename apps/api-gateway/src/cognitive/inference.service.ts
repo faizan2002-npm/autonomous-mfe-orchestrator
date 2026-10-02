@@ -1,9 +1,6 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import { generateText } from '@orchestrator/gemini-client';
-import {
-  GATEWAY_CONFIG,
-  type GatewayConfig,
-} from '../config/gateway-config.js';
+import { OrgSettingsService } from '../orgs/org-settings.service.js';
 import { buildRenameAdapter } from './fallback-adapter.js';
 import type {
   GeneratedAdapter,
@@ -26,10 +23,14 @@ Rules:
 export class InferenceService {
   private readonly logger = new Logger(InferenceService.name);
 
-  constructor(@Inject(GATEWAY_CONFIG) private readonly config: GatewayConfig) {}
+  constructor(
+    @Inject(OrgSettingsService) private readonly settings: OrgSettingsService,
+  ) {}
 
   async generate(task: PatchGenerationTask): Promise<GeneratedAdapter> {
-    const { apiKey, model } = this.config.gemini;
+    // Each organization may bring its own Gemini key and model.
+    const { apiKey, model } = (await this.settings.effective(task.orgId))
+      .gemini;
     if (!apiKey) return this.fallback(task, 'GEMINI_API_KEY is not set');
     try {
       const response = await generateText({

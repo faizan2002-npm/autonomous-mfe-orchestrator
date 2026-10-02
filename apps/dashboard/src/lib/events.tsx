@@ -1,5 +1,5 @@
 import { fetchEventSource } from '@microsoft/fetch-event-source';
-import type { GatewayEvent } from '@orchestrator/shared-types';
+import type { StreamedEvent } from '@orchestrator/shared-types';
 import { useQueryClient, type QueryClient } from '@tanstack/react-query';
 import {
   createContext,
@@ -17,14 +17,14 @@ export type LiveStatus = 'connecting' | 'live' | 'offline';
 interface LiveEvents {
   status: LiveStatus;
   /** Newest first. */
-  events: GatewayEvent[];
+  events: StreamedEvent[];
 }
 
 const MAX_EVENTS = 100;
 const LiveEventsContext = createContext<LiveEvents>({ status: 'offline', events: [] });
 
 /** Keeps cached queries fresh by invalidating exactly what an event changed. */
-export function invalidateFor(event: GatewayEvent, queries: QueryClient): void {
+export function invalidateFor(event: StreamedEvent, queries: QueryClient): void {
   const invalidate = (queryKey: readonly unknown[]) =>
     void queries.invalidateQueries({ queryKey });
   switch (event.type) {
@@ -77,7 +77,7 @@ export function LiveEventsProvider({ children }: { children: ReactNode }) {
       onmessage: (message) => {
         // Keep-alive lines arrive as empty messages.
         if (!message.data) return;
-        const event = JSON.parse(message.data) as GatewayEvent | { type: 'heartbeat' };
+        const event = JSON.parse(message.data) as StreamedEvent | { type: 'heartbeat' };
         if (event.type === 'heartbeat') return;
         invalidateFor(event, queries);
         setState((current) => ({

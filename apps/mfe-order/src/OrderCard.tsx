@@ -14,6 +14,8 @@ export type CanaryMode = 'on' | 'off' | 'sampled';
 
 export interface OrderCardProps {
   gatewayUrl: string;
+  /** Publishable consumer key for this app (x-orchestrator-key). */
+  apiKey: string;
   canary?: CanaryMode;
   refreshKey?: number;
   orderId?: number;
@@ -24,14 +26,17 @@ interface Loaded {
   healed: boolean;
 }
 
-export default function OrderCard({ gatewayUrl, canary = 'sampled', refreshKey = 0, orderId = 9821 }: OrderCardProps) {
+export default function OrderCard({ gatewayUrl, apiKey, canary = 'sampled', refreshKey = 0, orderId = 9821 }: OrderCardProps) {
   const [state, setState] = useState<Loaded | Error | null>(null);
 
   useEffect(() => {
     const controller = new AbortController();
     fetch(`${gatewayUrl}/api/v1/order-service/orders/${orderId}`, {
       signal: controller.signal,
-      headers: canary === 'sampled' ? {} : { 'x-mfe-canary': canary === 'on' ? 'true' : 'false' },
+      headers: {
+        'x-orchestrator-key': apiKey,
+        ...(canary === 'sampled' ? {} : { 'x-mfe-canary': canary === 'on' ? 'true' : 'false' }),
+      },
     })
       .then(async (response) => {
         if (!response.ok) throw new Error(`Gateway responded ${response.status}`);
@@ -44,7 +49,7 @@ export default function OrderCard({ gatewayUrl, canary = 'sampled', refreshKey =
         if (!controller.signal.aborted) setState(error instanceof Error ? error : new Error(String(error)));
       });
     return () => controller.abort();
-  }, [gatewayUrl, canary, refreshKey, orderId]);
+  }, [gatewayUrl, apiKey, canary, refreshKey, orderId]);
 
   if (state instanceof Error) throw state;
   if (!state) return <div className="h-40 animate-pulse rounded-xl bg-slate-100" />;

@@ -1,7 +1,11 @@
 // Response shapes of the gateway's dashboard API. Plain data only, so browsers can import them.
 import type {
+  ConsumerKind,
+  ContractSource,
   DriftType,
   GovernanceStatus,
+  KeyType,
+  OrgRole,
   PatchStatus,
   ServiceStatus,
   Severity,
@@ -20,6 +24,14 @@ export interface ContractRefView {
   serviceName: string;
   httpMethod: string;
   endpointPath: string;
+  /** The application whose contract this is. */
+  consumerId: string;
+  consumerName: string;
+}
+
+export interface FieldPinsView {
+  required: string[];
+  ignored: string[];
 }
 
 export interface ServiceSummary {
@@ -34,9 +46,12 @@ export interface ServiceSummary {
 
 export interface ContractView extends ContractRefView {
   id: string;
+  consumerId: string;
   version: number;
   fieldCount: number;
   schemaTokens: string[];
+  source: ContractSource;
+  pinnedFields: FieldPinsView | null;
   createdAt: Timestamp;
 }
 
@@ -144,48 +159,176 @@ export interface Page<T> {
   nextCursor: string | null;
 }
 
-/** Live events pushed over GET /api/governance/events (Server-Sent Events). */
-export type GatewayEvent =
-  | {
-      type: 'drift.detected';
-      at: Timestamp;
-      driftEventId: string;
-      contract: ContractRefView;
-      driftType: DriftType;
-      severity: Severity;
-      coefficient: number;
-      isBreaking: boolean;
-    }
-  | {
-      type: 'patch.generated';
-      at: Timestamp;
-      patchId: string;
-      driftEventId: string;
-      contract: ContractRefView;
-      generator: PatchView['generator'];
-      confidenceScore: number;
-    }
-  | {
-      type: 'patch.rejected';
-      at: Timestamp;
-      patchId: string;
-      driftEventId: string;
-      contract: ContractRefView;
-      reason: string;
-    }
-  | {
-      type: 'patch.deployed' | 'patch.promoted' | 'patch.rolledBack';
-      at: Timestamp;
-      patchId: string;
-      contract: ContractRefView;
-      canaryPercent: number;
-    }
-  | {
-      type: 'request.proxied';
-      at: Timestamp;
-      contract: ContractRefView;
-      status: number;
-      isPatched: boolean;
-    };
+interface EventBase {
+  at: Timestamp;
+  /** Events are delivered only to members of this organization. */
+  orgId: string;
+}
+
+/** Live events pushed over GET /api/orgs/:orgSlug/governance/events (Server-Sent Events). */
+export type GatewayEvent = EventBase &
+  (
+    | {
+        type: 'drift.detected';
+        driftEventId: string;
+        contract: ContractRefView;
+        driftType: DriftType;
+        severity: Severity;
+        coefficient: number;
+        isBreaking: boolean;
+      }
+    | {
+        type: 'patch.generated';
+        patchId: string;
+        driftEventId: string;
+        contract: ContractRefView;
+        generator: PatchView['generator'];
+        confidenceScore: number;
+      }
+    | {
+        type: 'patch.rejected';
+        patchId: string;
+        driftEventId: string;
+        contract: ContractRefView;
+        reason: string;
+      }
+    | {
+        type: 'patch.deployed' | 'patch.promoted' | 'patch.rolledBack';
+        patchId: string;
+        contract: ContractRefView;
+        canaryPercent: number;
+      }
+    | {
+        /** Internal: carries the invitation link for the email sender; never streamed to browsers. */
+        type: 'member.invited';
+        orgName: string;
+        email: string;
+        role: OrgRole;
+        acceptUrl: string;
+        invitedBy: string;
+      }
+    | {
+        type: 'request.proxied';
+        contract: ContractRefView;
+        status: number;
+        isPatched: boolean;
+      }
+  );
 
 export type GatewayEventType = GatewayEvent['type'];
+
+/** Events delivered to browsers over SSE (internal events are filtered out by the gateway). */
+export type StreamedEvent = Exclude<GatewayEvent, { type: 'member.invited' }>;
+
+// ---- Organizations, members and access -------------------------------------------------
+
+export interface OrgSummary {
+  id: string;
+  slug: string;
+  name: string;
+  role: OrgRole;
+}
+
+export interface OrgSettingsView {
+  id: string;
+  slug: string;
+  name: string;
+  /** null = gateway default (shown in `defaults`). */
+  driftThreshold: number | null;
+  canaryPercent: number | null;
+  geminiModel: string | null;
+  /** Whether a bring-your-own Gemini key is stored (the key itself is never returned). */
+  geminiKeyConfigured: boolean;
+  defaults: {
+    driftThreshold: number;
+    canaryPercent: number;
+    geminiModel: string;
+  };
+}
+
+export interface MemberView {
+  id: string;
+  userId: string;
+  email: string;
+  role: OrgRole;
+  createdAt: Timestamp;
+}
+
+export interface InvitationView {
+  id: string;
+  email: string;
+  role: OrgRole;
+  expiresAt: Timestamp;
+  createdAt: Timestamp;
+}
+
+/** Returned once when an invitation is created; the link is also emailed. */
+export interface CreatedInvitation extends InvitationView {
+  acceptUrl: string;
+}
+
+export interface InvitationPreview {
+  orgName: string;
+  email: string;
+  role: OrgRole;
+  expiresAt: Timestamp;
+}
+
+export interface ActivityView {
+  id: string;
+  actor: string;
+  action: string;
+  targetType: string;
+  targetId: string | null;
+  details: unknown;
+  createdAt: Timestamp;
+}
+
+// ---- Service registry and consumers -----------------------------------------------------
+
+export interface RegisteredService {
+  id: string;
+  serviceName: string;
+  baseUrl: string;
+  description: string | null;
+  healthPath: string | null;
+  timeoutMs: number;
+  /** Header names only; values are encrypted and never returned. */
+  upstreamHeaderNames: string[];
+  status: ServiceStatus;
+  createdAt: Timestamp;
+}
+
+export interface ConnectionTestResult {
+  ok: boolean;
+  status: number | null;
+  latencyMs: number | null;
+  error: string | null;
+}
+
+export interface ConsumerKeyView {
+  id: string;
+  type: KeyType;
+  /** e.g. "pk_a1B2c3…" */
+  display: string;
+  allowedOrigins: string[];
+  createdBy: string;
+  lastUsedAt: Timestamp | null;
+  revokedAt: Timestamp | null;
+  createdAt: Timestamp;
+}
+
+/** The only response that ever contains a full API key. */
+export interface IssuedKey extends ConsumerKeyView {
+  key: string;
+}
+
+export interface ConsumerView {
+  id: string;
+  name: string;
+  kind: ConsumerKind;
+  description: string | null;
+  serviceIds: string[];
+  keys: ConsumerKeyView[];
+  createdAt: Timestamp;
+}

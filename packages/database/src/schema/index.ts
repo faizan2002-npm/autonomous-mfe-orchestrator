@@ -1,3 +1,5 @@
+export * from './organizations.js';
+export * from './consumers.js';
 export * from './service-registries.js';
 export * from './api-contracts.js';
 export * from './drift-events.js';

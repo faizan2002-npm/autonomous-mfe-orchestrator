@@ -14,7 +14,8 @@
     "db:generate": "pnpm --filter @orchestrator/database db:generate",
     "test:integration": "bash scripts/test-integration.sh",
     "test:nest": "TEST_SUITE=nest bash scripts/test-integration.sh",
-    "test:e2e": "bash scripts/test-e2e.sh"
+    "test:e2e": "bash scripts/test-e2e.sh",
+    "db:seed": "pnpm --filter @orchestrator/gateway seed --"
   },
   "devDependencies": {
     "@types/node": "^20.14.0",

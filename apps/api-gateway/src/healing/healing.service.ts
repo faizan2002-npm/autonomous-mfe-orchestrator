@@ -47,6 +47,9 @@ export class HealingService implements OnModuleDestroy {
       patchId: patch.patchId,
       contractId: task.contractId,
       contract: {
+        orgId: task.orgId,
+        consumerId: task.consumerId,
+        consumerName: task.consumerName,
         serviceName: task.serviceName,
         httpMethod: task.httpMethod,
         endpointPath: task.endpointPath,

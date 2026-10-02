@@ -42,4 +42,18 @@ export const GOVERNANCE_STATUSES = [
 ] as const;
 export type GovernanceStatus = (typeof GOVERNANCE_STATUSES)[number];
 
+/** Highest privilege first: owner > admin > reviewer > viewer. */
+export const ORG_ROLES = ['owner', 'admin', 'reviewer', 'viewer'] as const;
+export type OrgRole = (typeof ORG_ROLES)[number];
+
+export const CONSUMER_KINDS = ['frontend', 'backend'] as const;
+export type ConsumerKind = (typeof CONSUMER_KINDS)[number];
+
+/** Publishable keys may ship in browser code (origin-restricted); secret keys are server-only. */
+export const KEY_TYPES = ['publishable', 'secret'] as const;
+export type KeyType = (typeof KEY_TYPES)[number];
+
+export const CONTRACT_SOURCES = ['traffic', 'openapi'] as const;
+export type ContractSource = (typeof CONTRACT_SOURCES)[number];
+
 export * from './api.js';
