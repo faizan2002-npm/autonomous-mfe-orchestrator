@@ -10,6 +10,7 @@ import {
   Patch,
   Post,
 } from '@nestjs/common';
+import { Throttle } from '@nestjs/throttler';
 import { CurrentUser } from '../auth/auth.guard.js';
 import { CurrentOrg, OrgScoped, type OrgAccess } from '../auth/org.guard.js';
 import type { AuthenticatedUser } from '../auth/token-verifier.js';
@@ -31,6 +32,7 @@ export class ServicesController {
   }
 
   @Post()
+  @Throttle({ management: { limit: 20, ttl: 60 * 1000 } })
   @OrgScoped('admin')
   create(
     @CurrentOrg() org: OrgAccess,
@@ -41,6 +43,7 @@ export class ServicesController {
   }
 
   @Patch(':serviceId')
+  @Throttle({ management: { limit: 20, ttl: 60 * 1000 } })
   @OrgScoped('admin')
   update(
     @CurrentOrg() org: OrgAccess,
@@ -52,6 +55,7 @@ export class ServicesController {
   }
 
   @Delete(':serviceId')
+  @Throttle({ management: { limit: 10, ttl: 60 * 1000 } })
   @OrgScoped('admin')
   @HttpCode(204)
   remove(
@@ -63,6 +67,7 @@ export class ServicesController {
   }
 
   @Post(':serviceId/test')
+  @Throttle({ management: { limit: 30, ttl: 60 * 1000 } })
   @OrgScoped('reviewer')
   @HttpCode(200)
   test(

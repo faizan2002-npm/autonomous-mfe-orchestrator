@@ -12,6 +12,7 @@ import {
   Sse,
   type MessageEvent,
 } from '@nestjs/common';
+import { Throttle } from '@nestjs/throttler';
 import { filter, interval, map, merge, type Observable } from 'rxjs';
 import { CurrentUser } from '../auth/auth.guard.js';
 import { CurrentOrg, OrgScoped, type OrgAccess } from '../auth/org.guard.js';
@@ -66,6 +67,7 @@ export class GovernanceController {
   }
 
   @Put('contracts/:contractId/pins')
+  @Throttle({ management: { limit: 20, ttl: 60 * 1000 } })
   @OrgScoped('reviewer')
   async pinContract(
     @CurrentOrg() org: OrgAccess,
@@ -113,6 +115,7 @@ export class GovernanceController {
   }
 
   @Post('patches/:patchId/preview')
+  @Throttle({ management: { limit: 30, ttl: 60 * 1000 } })
   @OrgScoped('reviewer')
   @HttpCode(200)
   previewPatch(
@@ -152,6 +155,7 @@ export class GovernanceController {
   }
 
   @Post('patches/:patchId/promote')
+  @Throttle({ management: { limit: 10, ttl: 60 * 1000 } })
   @OrgScoped('reviewer')
   async promotePatch(
     @CurrentOrg() org: OrgAccess,
@@ -166,6 +170,7 @@ export class GovernanceController {
   }
 
   @Post('patches/:patchId/rollback')
+  @Throttle({ management: { limit: 10, ttl: 60 * 1000 } })
   @OrgScoped('reviewer')
   async rollbackPatch(
     @CurrentOrg() org: OrgAccess,
