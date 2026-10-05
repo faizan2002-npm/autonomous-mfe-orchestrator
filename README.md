@@ -13,6 +13,7 @@ A gateway that sits between micro-frontends and their backend services. It learn
 - [Notifications](#notifications)
 - [Promotion Policies](#promotion-policies)
 - [OpenAPI Contracts](#openapi-contracts)
+- [Testing](#testing)
 - [Tech Stack](#tech-stack)
 - [Quick Start](#quick-start)
 - [Frontend](#frontend)
@@ -20,7 +21,6 @@ A gateway that sits between micro-frontends and their backend services. It learn
 - [Configuration](#configuration)
 - [API Reference](#api-reference)
 - [Architecture](#architecture)
-- [Testing](#testing)
 
 ---
 
@@ -122,6 +122,32 @@ By default, a consumer's contract for an endpoint is learned from its first resp
 - A consumer's **first request** to a declared endpoint is checked against the spec, so an upstream that already deviates is caught immediately rather than becoming the baseline. Undeclared endpoints are still learned from traffic.
 - *Only required properties* is an option for APIs that legitimately omit optional fields.
 - The service page compares every consumer contract with the spec: declared fields missing from the contract, and contract fields the spec doesn't declare. A reviewer can **use the spec as the contract**, which creates a new contract version and keeps the old one.
+
+## Testing
+
+The project has a multi-tier testing strategy: unit tests with Jest, integration tests against disposable Docker containers, and end-to-end tests with Playwright.
+
+```bash
+pnpm test                    # Unit tests (Jest + node:test, per-package)
+pnpm test:jest:coverage      # With coverage report (70-90% thresholds per module)
+pnpm test:integration        # Integration tests (Docker Postgres + Redis, ~10 min)
+pnpm test:e2e                # End-to-end tests (Playwright + Chrome, ~5 min)
+pnpm test:all                # Full ladder: build → lint → unit → integration → e2e
+```
+
+**Test suites:**
+- **Unit**: `packages/core`, `crypto`, `api-gateway` services; dashboard components
+- **Integration**: Multi-module flows with real DB/Redis: tenancy isolation, key auth, SSRF guard, RBAC, notifications outbox, policies, OpenAPI baselines
+- **E2E**: User workflows (services, consumers, notifications, contracts, drift)
+
+Each test:
+- Uses disposable Docker containers (never touches real Supabase/Upstash)
+- Starts with fresh state and cleans up after itself
+- Runs in parallel via Jest (`maxWorkers: 50%`)
+
+GitHub Actions runs all tests on every push and PR, with Codecov integration for coverage reporting.
+
+See `TEST-GUIDE.md` for detailed testing strategies, writing new tests, and debugging.
 
 ## Tech Stack
 

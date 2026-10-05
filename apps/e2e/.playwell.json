@@ -1,0 +1,19 @@
+{
+  "presets": {
+    "mobile": { "viewport": { "width": 375, "height": 667 } },
+    "tablet": { "viewport": { "width": 768, "height": 1024 } },
+    "desktop": { "viewport": { "width": 1920, "height": 1080 } }
+  },
+  "baseURL": "http://localhost:5100",
+  "webServer": {
+    "command": "pnpm dev",
+    "port": 5100,
+    "timeout": 120000,
+    "reuseExistingServer": true
+  },
+  "use": {
+    "screenshot": "only-on-failure",
+    "video": "retain-on-failure",
+    "trace": "on-first-retry"
+  }
+}

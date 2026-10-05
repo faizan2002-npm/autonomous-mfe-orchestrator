@@ -1,0 +1,7 @@
+{
+  "*.{ts,tsx}": ["eslint --fix", "prettier --write"],
+  "*.json": ["prettier --write"],
+  "*.md": ["prettier --write"],
+  "packages/**/*.ts": ["jest --bail --findRelatedTests"],
+  "apps/**/*.ts": ["jest --bail --findRelatedTests"]
+}
