@@ -8,6 +8,8 @@ import {
 import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger';
 import { AppModule } from './app.module.js';
 import { GATEWAY_CONFIG, type GatewayConfig } from './config/gateway-config.js';
+import { HttpMetricsInterceptor } from './observability/http-metrics.interceptor.js';
+import { MetricsService } from './observability/metrics.service.js';
 
 export async function createGateway(
   options: { logger?: false; shutdownHooks?: boolean } = {},
@@ -47,6 +49,10 @@ export async function createGateway(
         transform: true,
       }),
     );
+
+    // Register global HTTP metrics interceptor
+    const metricsService = app.get(MetricsService);
+    app.useGlobalInterceptors(new HttpMetricsInterceptor(metricsService));
 
     // Setup Swagger/OpenAPI documentation
     const config = new DocumentBuilder()
