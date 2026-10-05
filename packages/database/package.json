@@ -7,13 +7,14 @@
   "type": "module",
   "scripts": {
     "build": "tsc",
-    "db:generate": "drizzle-kit generate",
+    "db:generate": "tsc && drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate"
   },
   "dependencies": {
+    "@orchestrator/config": "workspace:*",
+    "@orchestrator/shared-types": "workspace:*",
     "drizzle-orm": "^0.30.10",
-    "postgres": "^3.4.4",
-    "@orchestrator/config": "workspace:*"
+    "postgres": "^3.4.4"
   },
   "devDependencies": {
     "@types/node": "^20.14.0",

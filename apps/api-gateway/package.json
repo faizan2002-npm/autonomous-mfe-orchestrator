@@ -8,7 +8,8 @@
     "build": "tsc",
     "start": "node dist/main.js",
     "test": "node --test dist/**/*.test.js",
-    "test:integration": "pnpm --filter @orchestrator/integration-tests test:live"
+    "test:integration": "pnpm --filter @orchestrator/integration-tests test:live",
+    "seed": "node dist/cli/seed.js"
   },
   "dependencies": {
     "@fastify/cors": "^9.0.1",
@@ -19,8 +20,9 @@
     "@orchestrator/adapter-runtime": "workspace:*",
     "@orchestrator/config": "workspace:*",
     "@orchestrator/core": "workspace:*",
+    "@orchestrator/crypto": "workspace:*",
     "@orchestrator/database": "workspace:*",
-    "@orchestrator/ollama-client": "workspace:*",
+    "@orchestrator/gemini-client": "workspace:*",
     "@orchestrator/shared-types": "workspace:*",
     "@orchestrator/upstream-client": "workspace:*",
     "class-transformer": "^0.5.1",
@@ -28,12 +30,18 @@
     "drizzle-orm": "^0.30.10",
     "fastify": "^4.27.0",
     "ioredis": "^5.4.1",
-    "postgres": "^3.4.4",
+    "jose": "^6.2.12",
+    "nodemailer": "^10",
     "reflect-metadata": "^0.2.2",
-    "rxjs": "^7.8.1"
+    "rxjs": "^7.8.1",
+    "undici": "^7",
+    "web-push": "^3.6.7",
+    "yaml": "^2.9.1"
   },
   "devDependencies": {
     "@types/node": "^20.14.0",
+    "@types/nodemailer": "^8.0.2",
+    "@types/web-push": "^3.6.4",
     "tsx": "^4.11.0",
     "typescript": "^5.4.5"
   }

@@ -1,45 +1,179 @@
-import { PromotePatchDto } from './promote-patch.dto.js';
 import {
-  Inject,
+  Body,
   Controller,
   Get,
-  Post,
+  HttpCode,
+  Inject,
   Param,
-  Body,
   ParseUUIDPipe,
-  ValidationPipe,
+  Post,
+  Put,
+  Query,
+  Sse,
+  type MessageEvent,
 } from '@nestjs/common';
+import { filter, interval, map, merge, type Observable } from 'rxjs';
+import { CurrentUser } from '../auth/auth.guard.js';
+import { CurrentOrg, OrgScoped, type OrgAccess } from '../auth/org.guard.js';
+import type { AuthenticatedUser } from '../auth/token-verifier.js';
+import { validated } from '../common/validation.js';
+import { GatewayEventsService } from '../events/gateway-events.service.js';
+import { ContractService } from '../observation/contract.service.js';
+import { GovernanceQueryService } from './governance-query.service.js';
+import {
+  AuditsQuery,
+  ContractPinsDto,
+  DriftEventsQuery,
+  PatchesQuery,
+} from './governance-queries.dto.js';
 import { GovernanceService } from './governance.service.js';
-import { CanaryService } from '../canary/canary.service.js';
+import { PatchDecisionDto } from './patch-decision.dto.js';
 
-@Controller('api/governance')
+const HEARTBEAT_MS = 25_000;
+/** Events that carry secrets (e.g. invitation links) and must never reach browsers. */
+const INTERNAL_EVENTS = new Set(['member.invited']);
+
+@Controller('api/orgs/:orgSlug/governance')
+@OrgScoped()
 export class GovernanceController {
   constructor(
     @Inject(GovernanceService)
     private readonly governanceService: GovernanceService,
-    @Inject(CanaryService) private readonly canaryService: CanaryService,
+    @Inject(GovernanceQueryService)
+    private readonly queries: GovernanceQueryService,
+    @Inject(ContractService) private readonly contracts: ContractService,
+    @Inject(GatewayEventsService) private readonly events: GatewayEventsService,
   ) {}
 
-  @Get('overview')
-  async getOverview() {
-    return this.governanceService.getOverview();
+  @Get('stats')
+  getStats(@CurrentOrg() org: OrgAccess) {
+    return this.queries.getStats(org.id);
+  }
+
+  @Get('config')
+  getConfig(@CurrentOrg() org: OrgAccess) {
+    return this.queries.getPublicConfig(org.id);
+  }
+
+  @Get('services')
+  listServices(@CurrentOrg() org: OrgAccess) {
+    return this.queries.listServices(org.id);
+  }
+
+  @Get('services/:name')
+  getService(@CurrentOrg() org: OrgAccess, @Param('name') name: string) {
+    return this.queries.getService(org.id, name);
+  }
+
+  @Put('contracts/:contractId/pins')
+  @OrgScoped('reviewer')
+  async pinContract(
+    @CurrentOrg() org: OrgAccess,
+    @Param('contractId', new ParseUUIDPipe()) contractId: string,
+    @Body(validated(ContractPinsDto)) pins: ContractPinsDto,
+  ) {
+    const empty = !pins.required.length && !pins.ignored.length;
+    await this.contracts.updatePins(org.id, contractId, empty ? null : pins);
+    return { pinnedFields: empty ? null : pins };
+  }
+
+  @Get('drift-events')
+  listDriftEvents(
+    @CurrentOrg() org: OrgAccess,
+    @Query(validated(DriftEventsQuery)) query: DriftEventsQuery,
+  ) {
+    return this.queries.listDriftEvents(org.id, {
+      ...query,
+      limit: query.limit ?? 25,
+    });
+  }
+
+  @Get('drift-events/:id')
+  getDriftEvent(
+    @CurrentOrg() org: OrgAccess,
+    @Param('id', new ParseUUIDPipe()) id: string,
+  ) {
+    return this.queries.getDriftEvent(org.id, id);
+  }
+
+  @Get('patches')
+  listPatches(
+    @CurrentOrg() org: OrgAccess,
+    @Query(validated(PatchesQuery)) query: PatchesQuery,
+  ) {
+    return this.queries.listPatches(org.id, query);
+  }
+
+  @Get('patches/:patchId')
+  getPatch(
+    @CurrentOrg() org: OrgAccess,
+    @Param('patchId', new ParseUUIDPipe()) patchId: string,
+  ) {
+    return this.queries.getPatch(org.id, patchId);
+  }
+
+  @Post('patches/:patchId/preview')
+  @OrgScoped('reviewer')
+  @HttpCode(200)
+  previewPatch(
+    @CurrentOrg() org: OrgAccess,
+    @Param('patchId', new ParseUUIDPipe()) patchId: string,
+  ) {
+    return this.queries.previewPatch(org.id, patchId);
+  }
+
+  @Get('audits')
+  listAudits(
+    @CurrentOrg() org: OrgAccess,
+    @Query(validated(AuditsQuery)) query: AuditsQuery,
+  ) {
+    return this.queries.listAudits(org.id, query.limit ?? 50);
+  }
+
+  /** Live pipeline events for this organization only (Server-Sent Events). */
+  @Sse('events')
+  streamEvents(
+    @CurrentOrg() org: OrgAccess,
+    @CurrentUser() user: AuthenticatedUser,
+  ): Observable<MessageEvent> {
+    return merge(
+      this.events.stream().pipe(
+        filter(
+          (event) =>
+            event.orgId === org.id &&
+            !INTERNAL_EVENTS.has(event.type) &&
+            // Inbox events are personal.
+            (event.type !== 'notification.created' || event.userId === user.id),
+        ),
+        map((event) => ({ data: event })),
+      ),
+      interval(HEARTBEAT_MS).pipe(map(() => ({ data: { type: 'heartbeat' } }))),
+    );
   }
 
   @Post('patches/:patchId/promote')
+  @OrgScoped('reviewer')
   async promotePatch(
+    @CurrentOrg() org: OrgAccess,
     @Param('patchId', new ParseUUIDPipe()) patchId: string,
-    @Body(
-      new ValidationPipe({
-        expectedType: PromotePatchDto,
-        whitelist: true,
-        forbidNonWhitelisted: true,
-      }),
-    )
-    body: PromotePatchDto,
+    @Body(validated(PatchDecisionDto)) decision: PatchDecisionDto,
+    @CurrentUser() user: AuthenticatedUser,
   ) {
-    await this.canaryService.promotePatch(patchId, body.serviceName);
+    await this.governanceService.promotePatch(org.id, patchId, decision, user);
     return {
       message: `Patch ${patchId} successfully promoted to 100% production.`,
     };
+  }
+
+  @Post('patches/:patchId/rollback')
+  @OrgScoped('reviewer')
+  async rollbackPatch(
+    @CurrentOrg() org: OrgAccess,
+    @Param('patchId', new ParseUUIDPipe()) patchId: string,
+    @Body(validated(PatchDecisionDto)) decision: PatchDecisionDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    await this.governanceService.rollbackPatch(org.id, patchId, decision, user);
+    return { message: `Patch ${patchId} rolled back.` };
   }
 }

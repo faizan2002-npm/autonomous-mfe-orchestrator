@@ -5,6 +5,10 @@ export interface UpstreamRequest {
   query?: string;
   body?: unknown;
   timeoutMs?: number;
+  /** Extra headers sent upstream, e.g. service credentials. */
+  headers?: Record<string, string>;
+  /** Transport override, e.g. an SSRF-guarded fetch. */
+  fetch?: typeof fetch;
 }
 
 /** JSON transport shared by gateway routes; leaves drift handling to callers. */
@@ -13,9 +17,10 @@ export async function requestUpstream(
 ): Promise<{ status: number; payload: unknown }> {
   const url = `${request.baseUrl.replace(/\/$/, '')}/${request.path.replace(/^\/+/, '')}${request.query || ''}`;
   const method = request.method.toUpperCase();
-  const response = await fetch(url, {
+  const send = request.fetch ?? fetch;
+  const response = await send(url, {
     method,
-    headers: { 'content-type': 'application/json' },
+    headers: { ...request.headers, 'content-type': 'application/json' },
     body:
       method === 'GET' || method === 'HEAD' || request.body === undefined
         ? undefined

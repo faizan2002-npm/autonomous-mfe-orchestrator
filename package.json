@@ -12,16 +12,14 @@
     "format": "prettier --write \"**/*.{ts,tsx,js,json,md}\"",
     "db:migrate": "pnpm --filter @orchestrator/database db:migrate",
     "db:generate": "pnpm --filter @orchestrator/database db:generate",
-    "docker:up": "docker compose up -d",
-    "docker:down": "docker compose down",
     "test:integration": "bash scripts/test-integration.sh",
-    "test:nest": "TEST_SUITE=nest bash scripts/test-integration.sh"
+    "test:nest": "TEST_SUITE=nest bash scripts/test-integration.sh",
+    "test:e2e": "bash scripts/test-e2e.sh",
+    "db:seed": "pnpm --filter @orchestrator/gateway seed --"
   },
   "devDependencies": {
-    "@prisma/client": "5.22.0",
     "@types/node": "^20.14.0",
     "prettier": "^3.3.0",
-    "prisma": "5.22.0",
     "typescript": "^5.4.5"
   },
   "engines": {

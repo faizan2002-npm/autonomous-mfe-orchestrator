@@ -1,19 +1,29 @@
-import { pgTable, uuid, text, varchar, doublePrecision, integer, timestamp, pgEnum } from 'drizzle-orm/pg-core';
+import { PATCH_STATUSES } from '@orchestrator/shared-types';
+import {
+  pgTable,
+  uuid,
+  text,
+  varchar,
+  doublePrecision,
+  integer,
+  timestamp,
+  pgEnum,
+} from 'drizzle-orm/pg-core';
+import { organizations } from './organizations.js';
+import { consumers } from './consumers.js';
 import { apiContracts } from './api-contracts.js';
 import { driftEvents } from './drift-events.js';
 
-export const patchStatusEnum = pgEnum('patch_status', [
-  'GENERATING',
-  'VALIDATED',
-  'CANARY',
-  'ACTIVE',
-  'FAILED',
-  'SUPERSEDED',
-  'ROLLED_BACK',
-]);
+export const patchStatusEnum = pgEnum('patch_status', PATCH_STATUSES);
 
 export const patchRegistries = pgTable('patch_registries', {
   id: uuid('id').defaultRandom().primaryKey(),
+  orgId: uuid('org_id')
+    .notNull()
+    .references(() => organizations.id, { onDelete: 'cascade' }),
+  consumerId: uuid('consumer_id')
+    .notNull()
+    .references(() => consumers.id, { onDelete: 'cascade' }),
   contractId: uuid('contract_id')
     .notNull()
     .references(() => apiContracts.id, { onDelete: 'cascade' }),
@@ -27,7 +37,9 @@ export const patchRegistries = pgTable('patch_registries', {
   canaryPercent: integer('canary_percent').default(0).notNull(),
   deployedAt: timestamp('deployed_at', { withTimezone: true }),
   rolledBackAt: timestamp('rolled_back_at', { withTimezone: true }),
-  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  createdAt: timestamp('created_at', { withTimezone: true })
+    .defaultNow()
+    .notNull(),
 });
 
 export type PatchRegistry = typeof patchRegistries.$inferSelect;

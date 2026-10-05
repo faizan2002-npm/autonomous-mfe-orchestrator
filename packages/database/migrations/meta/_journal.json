@@ -43,6 +43,48 @@
       "when": 1790850124928,
       "tag": "0006_governance_audits",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "6",
+      "when": 1790936693752,
+      "tag": "0007_tenancy_tables",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "6",
+      "when": 1790936705997,
+      "tag": "0008_backfill_demo_org",
+      "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "6",
+      "when": 1790936728496,
+      "tag": "0009_tenancy_constraints",
+      "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "6",
+      "when": 1790939779226,
+      "tag": "0010_notifications",
+      "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "6",
+      "when": 1790940750951,
+      "tag": "0011_promotion_policies",
+      "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "6",
+      "when": 1790941307087,
+      "tag": "0012_openapi_operations",
+      "breakpoints": true
     }
   ]
 }

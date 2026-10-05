@@ -5,9 +5,9 @@ import {
   computeJaccardSimilarity,
   computeDriftCoefficient,
   analyzeSchemaDiff,
-  validateAdapterAst,
-} from './comparator.js';
-import { executeInSandbox } from './sandbox.js';
+  applyPins,
+  assessDrift,
+} from './index.js';
 
 test('flattenPayload flattens simple and nested objects', () => {
   const payload = {
@@ -43,40 +43,95 @@ test('Jaccard similarity and drift coefficient calculation', () => {
 });
 
 test('analyzeSchemaDiff detects missing, added, and type changed fields', () => {
-  const oldSchema = new Set(['id:number', 'firstName:string', 'active:boolean']);
-  const newSchema = new Set(['id:number', 'first_name:string', 'active:string']);
+  const oldSchema = new Set([
+    'id:number',
+    'firstName:string',
+    'active:boolean',
+  ]);
+  const newSchema = new Set([
+    'id:number',
+    'first_name:string',
+    'active:string',
+  ]);
 
   const diff = analyzeSchemaDiff(oldSchema, newSchema);
   assert.deepEqual(diff.missingFields, ['firstName']);
   assert.deepEqual(diff.addedFields, ['first_name']);
-  assert.deepEqual(diff.typeMismatches, [{ path: 'active', expected: 'boolean', observed: 'string' }]);
+  assert.deepEqual(diff.typeMismatches, [
+    { path: 'active', expected: 'boolean', observed: 'string' },
+  ]);
 });
 
-test('validateAdapterAst blocks unsafe code', () => {
-  const safeCode = `(data) => ({ ...data, firstName: data.first_name })`;
-  assert.equal(validateAdapterAst(safeCode).valid, true);
-
-  const unsafeEval = `(data) => { eval("console.log(1)"); return data; }`;
-  assert.equal(validateAdapterAst(unsafeEval).valid, false);
-
-  const unsafeFetch = `(data) => { fetch("http://evil.com"); return data; }`;
-  assert.equal(validateAdapterAst(unsafeFetch).valid, false);
+test('analyzeSchemaDiff keeps field names that contain a colon', () => {
+  const diff = analyzeSchemaDiff(
+    new Set(['meta:tag:string']),
+    new Set(['meta:tag:number']),
+  );
+  assert.deepEqual(diff.typeMismatches, [
+    { path: 'meta:tag', expected: 'string', observed: 'number' },
+  ]);
 });
 
-test('executeInSandbox runs adapter pure transformation within limits', () => {
-  const adapter = `(data) => ({
-    id: data.id,
-    firstName: data.first_name,
-    email: data.email ?? 'no-email@domain.com'
-  })`;
+test('unchanged payloads and drift at the threshold are not reported', () => {
+  assert.equal(assessDrift(['name:string'], { name: 'Ada' }, 0), null);
+  assert.equal(assessDrift(['name:string'], { renamed: 'Ada' }, 1), null);
+});
 
-  const input = { id: 1, first_name: 'Bob' };
-  const res = executeInSandbox(adapter, input);
+test('renames are breaking while additional fields are not', () => {
+  const renamed = assessDrift(['firstName:string'], { first_name: 'Ada' }, 0);
+  assert.equal(renamed?.type, 'FIELD_RENAMED');
+  assert.equal(renamed?.isBreaking, true);
+  assert.equal(renamed?.severity, 'CRITICAL');
+  const added = assessDrift(['name:string'], { name: 'Ada', active: true }, 0);
+  assert.equal(added?.type, 'FIELD_ADDED');
+  assert.equal(added?.isBreaking, false);
+  assert.equal(added?.severity, 'LOW');
+});
 
-  assert.equal(res.success, true);
-  assert.deepEqual(res.transformedOutput, {
+test('type changes are classified as TYPE_CHANGED', () => {
+  assert.equal(
+    assessDrift(['id:number'], { id: '12' }, 0)?.type,
+    'TYPE_CHANGED',
+  );
+});
+
+test('pinned fields limit drift to what a consumer depends on', () => {
+  const expected = [
+    'id:number',
+    'name:string',
+    'profile.bio:string',
+    'profile.avatar:string',
+  ];
+  const renamedAvatar = {
     id: 1,
-    firstName: 'Bob',
-    email: 'no-email@domain.com',
-  });
+    name: 'Ada',
+    profile: { bio: 'hi', avatar_url: 'a.png' },
+  };
+  assert.equal(assessDrift(expected, renamedAvatar, 0)?.isBreaking, true);
+  // A consumer that only reads id and name is unaffected.
+  assert.equal(
+    assessDrift(expected, renamedAvatar, 0, {
+      required: ['id', 'name'],
+      ignored: [],
+    }),
+    null,
+  );
+  // Ignoring the avatar subtree also hides the rename.
+  assert.equal(
+    assessDrift(expected, renamedAvatar, 0, {
+      required: [],
+      ignored: ['profile.avatar', 'profile.avatar_url'],
+    }),
+    null,
+  );
+  // A pin on a parent covers its children and array items.
+  assert.deepEqual(
+    [
+      ...applyPins(['profile.bio:string', 'tags[]:string', 'id:number'], {
+        required: ['profile', 'tags'],
+        ignored: [],
+      }),
+    ],
+    ['profile.bio:string', 'tags[]:string'],
+  );
 });

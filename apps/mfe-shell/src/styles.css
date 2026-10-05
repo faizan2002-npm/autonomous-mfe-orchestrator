@@ -1,0 +1,4 @@
+@import 'tailwindcss';
+/* The shell owns the design system; remotes use its utility classes. */
+@source '../../mfe-user/src';
+@source '../../mfe-order/src';

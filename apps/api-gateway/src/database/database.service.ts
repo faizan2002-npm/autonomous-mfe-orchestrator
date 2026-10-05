@@ -1,4 +1,3 @@
-import { ConfigService } from '@nestjs/config';
 import {
   Inject,
   Injectable,
@@ -7,16 +6,18 @@ import {
 } from '@nestjs/common';
 import { createDatabaseConnection } from '@orchestrator/database';
 import { sql } from 'drizzle-orm';
+import {
+  GATEWAY_CONFIG,
+  type GatewayConfig,
+} from '../config/gateway-config.js';
 
 @Injectable()
 export class DatabaseService implements OnModuleInit, OnApplicationShutdown {
   private readonly connection: ReturnType<typeof createDatabaseConnection>;
   readonly db;
 
-  constructor(@Inject(ConfigService) config: ConfigService) {
-    this.connection = createDatabaseConnection(
-      config.getOrThrow<string>('DATABASE_URL'),
-    );
+  constructor(@Inject(GATEWAY_CONFIG) config: GatewayConfig) {
+    this.connection = createDatabaseConnection(config.databaseUrl);
     this.db = this.connection.db;
   }
 

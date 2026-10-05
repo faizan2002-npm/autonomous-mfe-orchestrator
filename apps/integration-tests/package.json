@@ -4,16 +4,19 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "test:live": "node --test live.test.mjs nest.test.mjs",
-    "test:nest": "node --test nest.test.mjs"
+    "test:live": "node --test live.test.mjs nest.test.mjs notifications.test.mjs policies.test.mjs openapi.test.mjs",
+    "test:nest": "node --test nest.test.mjs",
+    "test:notifications": "node --test notifications.test.mjs"
   },
   "devDependencies": {
-    "@orchestrator/gateway": "workspace:*",
-    "@orchestrator/database": "workspace:*",
-    "@orchestrator/ollama-client": "workspace:*",
     "@orchestrator/adapter-runtime": "workspace:*",
+    "@orchestrator/database": "workspace:*",
+    "@orchestrator/gateway": "workspace:*",
+    "@orchestrator/gemini-client": "workspace:*",
     "drizzle-orm": "^0.30.10",
     "ioredis": "^5.4.1",
-    "postgres": "^3.4.4"
+    "jose": "^6.2.12",
+    "postgres": "^3.4.4",
+    "web-push": "^3.6.7"
   }
 }

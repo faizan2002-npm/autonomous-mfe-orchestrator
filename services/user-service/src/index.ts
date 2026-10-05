@@ -57,6 +57,16 @@ fastify.post('/chaos/mutate', async (_req, reply) => {
   });
 });
 
+fastify.get('/chaos/state', async () => ({ isMutated: state.isMutated }));
+
+// Explicit setter for dashboards (the toggle above is ambiguous when called twice).
+fastify.post<{ Body: { mutated?: unknown } }>('/chaos/state', async (req, reply) => {
+  if (typeof req.body?.mutated !== 'boolean')
+    return reply.status(400).send({ error: 'Body must be { "mutated": boolean }' });
+  state.isMutated = req.body.mutated;
+  return { isMutated: state.isMutated };
+});
+
 fastify.get('/health', async () => ({ status: 'UP', service: 'user-service' }));
 
 const port = Number(process.env.USER_SERVICE_PORT) || 3001;
