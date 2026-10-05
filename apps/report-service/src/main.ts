@@ -15,10 +15,7 @@ async function bootstrap(): Promise<void> {
   );
 
   // CORS
-  await app.register(require('@fastify/cors'), {
-    origin: true,
-    credentials: true,
-  });
+  app.enableCors({ origin: true, credentials: true });
 
   await app.listen(PORT, '0.0.0.0');
   console.log(`Report service listening on http://localhost:${PORT}`);
