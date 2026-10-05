@@ -25,6 +25,7 @@ import type {
   NotificationEvent,
   NotificationPreferences,
   OrgRole,
+  OpenApiState,
   OrgSettingsView,
   OrgSummary,
   Page,
@@ -186,6 +187,15 @@ export function orgApi(slug: string) {
     deleteService: (id: string) => request<void>(`${org}/services/${id}`, json('DELETE')),
     testService: (id: string) => request<ConnectionTestResult>(`${org}/services/${id}/test`, json('POST')),
 
+    openapi: (serviceId: string) => request<OpenApiState>(`${org}/services/${serviceId}/openapi`),
+    importOpenApi: (
+      serviceId: string,
+      input: { document?: string; url?: string; requiredOnly?: boolean },
+    ) => request<OpenApiState>(`${org}/services/${serviceId}/openapi`, json('PUT', input)),
+    removeOpenApi: (serviceId: string) => request<void>(`${org}/services/${serviceId}/openapi`, json('DELETE')),
+    adoptOpenApi: (serviceId: string, contractId: string) =>
+      request<OpenApiState>(`${org}/services/${serviceId}/openapi/adopt`, json('POST', { contractId })),
+
     consumers: () => request<ConsumerView[]>(`${org}/consumers`),
     createConsumer: (input: { name: string; kind: ConsumerKind; description?: string; serviceIds?: string[] }) =>
       request<ConsumerView>(`${org}/consumers`, json('POST', input)),
@@ -286,6 +296,7 @@ export const keys = {
   endpoints: (slug: string) => ['org', slug, 'notification-endpoints'] as const,
   deliveries: (slug: string, endpointId?: string) => ['org', slug, 'deliveries', endpointId ?? 'all'] as const,
   pushConfig: ['push-config'] as const,
+  openapi: (slug: string, serviceId: string) => ['org', slug, 'services', 'openapi', serviceId] as const,
   policies: (slug: string) => ['org', slug, 'policies'] as const,
   policyOutlook: (slug: string) => ['org', slug, 'policies', 'outlook'] as const,
 };

@@ -6,6 +6,7 @@ import { Link, useNavigate, useParams } from 'react-router';
 import { toast } from 'sonner';
 import { ConfirmDialog } from '@/components/admin';
 import { EmptyState, ErrorState, LoadingRows, PageHeader, Stat } from '@/components/common';
+import { OpenApiPanel } from '@/components/OpenApiPanel';
 import { StatusBadge } from '@/components/StatusBadge';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -419,8 +420,8 @@ export function ServiceDetailPage() {
             <CardHeader>
               <CardTitle>Contracts by consumer</CardTitle>
               <CardDescription>
-                Each consumer's first response per endpoint becomes its baseline. Pin the fields a consumer depends on to
-                ignore irrelevant changes.
+                Each consumer's baseline per endpoint comes from the imported OpenAPI spec, or else from its first
+                response. Pin the fields a consumer depends on to ignore irrelevant changes.
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-6">
@@ -478,6 +479,8 @@ export function ServiceDetailPage() {
               ))}
             </CardContent>
           </Card>
+
+          <OpenApiPanel service={registered} />
 
           {can('admin') && (
             <Card>

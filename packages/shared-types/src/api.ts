@@ -312,6 +312,8 @@ export interface RegisteredService {
   /** Header names only; values are encrypted and never returned. */
   upstreamHeaderNames: string[];
   status: ServiceStatus;
+  /** The last OpenAPI import, when the service's contracts come from a spec. */
+  openapi: OpenApiImportView | null;
   createdAt: Timestamp;
 }
 
@@ -453,4 +455,51 @@ export interface PolicyOutlook {
   deployedAt: Timestamp | null;
   policy: Pick<PromotionPolicyView, 'id' | 'name' | 'minCanaryRequests' | 'minCanaryMinutes' | 'maxFailureRate' | 'rollbackFailureRate'> | null;
   decision: PolicyDecision | null;
+}
+
+// ---- OpenAPI import ------------------------------------------------------------------------
+
+export interface OpenApiImportView {
+  title: string;
+  version: string;
+  importedAt: Timestamp;
+  importedBy: string;
+  operations: number;
+  /** "METHOD /path" of operations without a JSON 2xx response schema. */
+  skipped: string[];
+  /** Only properties an object lists as required form the contract. */
+  requiredOnly: boolean;
+  sourceUrl: string | null;
+}
+
+export interface ServiceOperationView {
+  id: string;
+  httpMethod: string;
+  pathTemplate: string;
+  operationId: string | null;
+  summary: string | null;
+  responseStatus: string;
+  schemaTokens: string[];
+}
+
+/** A consumer contract compared with the spec operation covering its endpoint. */
+export interface ContractComparison {
+  contractId: string;
+  consumerId: string;
+  consumerName: string;
+  httpMethod: string;
+  endpointPath: string;
+  source: ContractSource;
+  operationId: string;
+  pathTemplate: string;
+  /** In the spec but not in the contract. */
+  missingFromContract: string[];
+  /** In the contract but not in the spec. */
+  notInSpec: string[];
+}
+
+export interface OpenApiState {
+  import: OpenApiImportView | null;
+  operations: ServiceOperationView[];
+  comparisons: ContractComparison[];
 }

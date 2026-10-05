@@ -12,6 +12,7 @@ A gateway that sits between micro-frontends and their backend services. It learn
 - [Organizations, Consumers and Keys](#organizations-consumers-and-keys)
 - [Notifications](#notifications)
 - [Promotion Policies](#promotion-policies)
+- [OpenAPI Contracts](#openapi-contracts)
 - [Tech Stack](#tech-stack)
 - [Quick Start](#quick-start)
 - [Frontend](#frontend)
@@ -113,6 +114,15 @@ How policies are applied:
 
 The **Policies** page shows every canary patch with its progress toward the thresholds and the policy's next step. `pnpm db:seed` adds a conservative `Default` policy to the Demo Organization: 50 requests, 30 minutes, no failures, and rollback at 25% after 20 requests.
 
+## OpenAPI Contracts
+
+By default, a consumer's contract for an endpoint is learned from its first response. Import a service's **OpenAPI 3.x or Swagger 2.0** document (JSON or YAML; pasted, uploaded, or fetched from a URL by the gateway through the SSRF guard) and contracts start from what the API *declares* instead:
+
+- Each operation's JSON 2xx response schema becomes `path:type` tokens. These are the same tokens the gateway extracts from real responses. Parsing resolves `$ref`, `allOf`, first `oneOf`/`anyOf` variants, nullable types (3.0 `nullable` and 3.1 type arrays), enums, nested arrays, and server/`basePath` prefixes.
+- A consumer's **first request** to a declared endpoint is checked against the spec, so an upstream that already deviates is caught immediately rather than becoming the baseline. Undeclared endpoints are still learned from traffic.
+- *Only required properties* is an option for APIs that legitimately omit optional fields.
+- The service page compares every consumer contract with the spec: declared fields missing from the contract, and contract fields the spec doesn't declare. A reviewer can **use the spec as the contract**, which creates a new contract version and keeps the old one.
+
 ## Tech Stack
 
 | Layer | Technology |
@@ -199,7 +209,7 @@ An **org switcher** moves between organizations. Everything lives under `/o/:org
 | Page | What it shows |
 |---|---|
 | **Overview** | Health and drift KPIs, drift events per hour, live activity feed, service health, patches awaiting promotion |
-| **Services** | Registered upstreams with health; detail view with configuration (write-only upstream headers), connection test, contracts per consumer with a field-pinning editor, and recent drift |
+| **Services** | Registered upstreams with health; detail view with configuration (write-only upstream headers), connection test, contracts per consumer with a field-pinning editor, OpenAPI import with spec-vs-contract comparison, and recent drift |
 | **Consumers & keys** | Frontend and backend consumers, the services each may call, keys (issue once, revoke, last used, allowed origins) |
 | **Drift Events** | Filterable history; detail view with the drift coefficient and a field-by-field schema diff |
 | **Patches** | Canary / active / rejected / rolled back / superseded; detail view with the adapter code, generator, sandbox preview, canary traffic, lifecycle and audit trail, plus **Promote** and **Roll back** |
@@ -304,6 +314,8 @@ Responses: `401` missing/unknown/revoked key, `403` wrong origin or service not 
 | `GET` | `/activity` | Administrative trail [admin] |
 | `GET`, `POST`, `PATCH`, `DELETE` | `/services`, `/services/:id` | Service registry [viewer read, admin write] |
 | `POST` | `/services/:id/test` | Connection test [reviewer] |
+| `GET`, `PUT`, `DELETE` | `/services/:id/openapi` | Imported spec, declared operations and contract comparisons [viewer] / import `{ document \| url, requiredOnly? }` or remove [admin] |
+| `POST` | `/services/:id/openapi/adopt` | `{ contractId }`: re-baseline a consumer contract on the spec [reviewer] |
 | `GET`, `POST`, `PATCH`, `DELETE` | `/consumers`, `/consumers/:id` | Consumers and service grants [viewer read, admin write] |
 | `POST`, `DELETE` | `/consumers/:id/keys`, `/consumers/:id/keys/:keyId` | Issue (`{ type, allowedOrigins? }`, key returned once) / revoke [admin] |
 | `GET` | `/governance/stats`, `/config`, `/services`, `/services/:name`, `/audits` | Read models [viewer] |
@@ -401,7 +413,7 @@ Created by the migrations in `packages/database/migrations` (pre-tenancy data is
 | `organizations` | Tenants and their pipeline overrides (threshold, canary %, Gemini model, encrypted BYO Gemini key) |
 | `org_members`, `org_invitations` | Memberships with roles; single-use, email-bound, expiring invitations (token hashes only) |
 | `org_activity` | Administrative audit trail |
-| `service_registries` | Each org's upstream services, base URLs, encrypted headers and health |
+| `service_registries` | Each org's upstream services, base URLs, encrypted headers, health and last OpenAPI import |
 | `consumers`, `consumer_keys`, `consumer_services` | Applications, their API keys (hashes only) and the services they may call |
 | `api_contracts` | Baseline schema tokens per consumer contract, with optional field pins |
 | `drift_events` | Each detected drift with its coefficient, diff and classification |
@@ -410,6 +422,7 @@ Created by the migrations in `packages/database/migrations` (pre-tenancy data is
 | `notifications`, `notification_preferences` | Per-member inbox and channel choices |
 | `notification_endpoints`, `push_subscriptions` | Org Slack/webhook integrations (encrypted URLs and secrets) and members' browser push subscriptions |
 | `notification_deliveries` | Outbox of email, push, Slack and webhook deliveries with attempts and errors |
+| `service_operations` | Response contracts declared by each service's imported OpenAPI document |
 | `promotion_policies` | Automatic promotion and rollback rules per org, service and consumer scope |
 | `canary_metrics` | Evidence behind each automatic policy decision (live canary counters are in Redis) |
 
@@ -437,6 +450,12 @@ The integration suite covers tenant isolation (non-members get 404, keys can't c
 - signed webhooks verified by a local receiver;
 - encrypted, VAPID-signed web push to a local HTTPS push service, with pruning of gone subscriptions;
 - outbox retry and redelivery.
+
+An OpenAPI suite covers:
+- import from a URL (YAML) and inline JSON;
+- rejection of invalid documents;
+- first-response drift for consumers starting from the spec;
+- comparison with learned contracts, and adoption as a new contract version.
 
 A policies suite covers:
 - scoping (most specific wins), validation and roles;

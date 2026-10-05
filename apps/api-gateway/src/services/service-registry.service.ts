@@ -292,6 +292,7 @@ export class ServiceRegistryService {
         this.openHeaders(row.upstreamHeadersEnc),
       ),
       status: row.status,
+      openapi: row.openapi ?? null,
       createdAt: row.createdAt.toISOString(),
     };
   }
