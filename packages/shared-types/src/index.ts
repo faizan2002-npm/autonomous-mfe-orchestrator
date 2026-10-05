@@ -87,3 +87,35 @@ export type PatchGenerator = (typeof PATCH_GENERATORS)[number];
 
 export const POLICY_ACTIONS = ['promote', 'rollback', 'wait', 'blocked'] as const;
 export type PolicyAction = (typeof POLICY_ACTIONS)[number];
+
+/** Database entity types used by report-service and gateway */
+export type PatchRegistry = {
+  id: string;
+  orgId: string;
+  consumerId: string;
+  contractId: string;
+  driftEventId: string;
+  adapterCode: string;
+  adapterSignature: string;
+  confidenceScore: number;
+  status: PatchStatus;
+  canaryPercent: number;
+  deployedAt: string | null;
+  rolledBackAt: string | null;
+  createdAt: string;
+};
+
+export type DriftEvent = {
+  id: string;
+  orgId: string;
+  consumerId: string;
+  contractId: string;
+  serviceId: string;
+  driftType: DriftType;
+  severity: Severity;
+  driftCoefficient: number;
+  observedPayload: Record<string, unknown>;
+  diffDetails: Record<string, unknown>;
+  isBreaking: boolean;
+  detectedAt: string;
+};

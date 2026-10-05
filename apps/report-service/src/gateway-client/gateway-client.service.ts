@@ -1,9 +1,12 @@
 import { Injectable, Logger } from '@nestjs/common';
 import type {
-  GatewayEvent,
   PatchRegistry,
   DriftEvent,
 } from '@orchestrator/shared-types';
+
+export type GatewayEvent = Record<string, unknown> & {
+  type: string;
+};
 
 /**
  * Client for communicating with the Autonomous MFE Orchestrator gateway.
@@ -26,7 +29,7 @@ export class GatewayClientService {
   async getPatches(orgSlug: string): Promise<PatchRegistry[]> {
     try {
       const response = await fetch(
-        `${this.baseUrl}/orgs/${orgSlug}/patches`,
+        `${this.baseUrl}/orgs/${orgSlug}/governance/patches`,
         {
           headers: { 'x-api-key': this.apiKey },
         },
@@ -54,7 +57,7 @@ export class GatewayClientService {
   ): Promise<DriftEvent[]> {
     try {
       const response = await fetch(
-        `${this.baseUrl}/orgs/${orgSlug}/drift?limit=${limit}`,
+        `${this.baseUrl}/orgs/${orgSlug}/governance/drift-events?limit=${limit}`,
         {
           headers: { 'x-api-key': this.apiKey },
         },

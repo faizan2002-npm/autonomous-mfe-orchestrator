@@ -1,0 +1,14 @@
+{
+  "name": "@orchestrator/load-tests",
+  "version": "1.0.0",
+  "type": "module",
+  "description": "Load testing suite for the Autonomous MFE Orchestrator gateway",
+  "scripts": {
+    "test:baseline": "k6 run k6-baseline.js",
+    "test:circuit-breaker": "k6 run k6-circuit-breaker.js",
+    "test:canary-isolation": "k6 run k6-canary-isolation.js"
+  },
+  "devDependencies": {
+    "k6": "^0.50.0"
+  }
+}

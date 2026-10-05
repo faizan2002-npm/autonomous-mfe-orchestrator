@@ -96,6 +96,31 @@ export class MetricsService {
     buckets: [0.01, 0.05, 0.1, 0.5, 1, 5],
   });
 
+  // Canary metrics
+  readonly canarySuccessRate = new promClient.Gauge({
+    name: 'gateway_canary_success_rate',
+    help: 'Canary patch success rate (0-1)',
+    labelNames: ['patch_id', 'org_id'],
+  });
+
+  readonly canaryErrorRate = new promClient.Gauge({
+    name: 'gateway_canary_error_rate',
+    help: 'Canary patch error rate (0-1)',
+    labelNames: ['patch_id', 'org_id'],
+  });
+
+  readonly canaryLatency = new promClient.Gauge({
+    name: 'gateway_canary_latency_ms',
+    help: 'Average latency for canary requests (ms)',
+    labelNames: ['patch_id', 'org_id'],
+  });
+
+  readonly canaryBaselineComparison = new promClient.Gauge({
+    name: 'gateway_canary_baseline_ratio',
+    help: 'Ratio of canary error rate to baseline error rate',
+    labelNames: ['patch_id', 'org_id'],
+  });
+
   constructor() {
     this.registerDefaultMetrics();
     this.logger.log('Prometheus metrics initialized');
