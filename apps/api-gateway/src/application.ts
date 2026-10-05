@@ -42,6 +42,39 @@ export async function createGateway(
         });
       };
     app.enableCors(perRequestCors as never);
+
+    // Security headers: prevent common web vulnerabilities
+    // Using a Fastify hook instead of helmet plugin for better compatibility
+    const fastifyInstance = app.getHttpAdapter().getInstance();
+    fastifyInstance.addHook('onSend', async (_request, reply) => {
+      // Strict-Transport-Security: enforce HTTPS
+      reply.header('Strict-Transport-Security', 'max-age=31536000; includeSubDomains; preload');
+
+      // X-Content-Type-Options: prevent MIME type sniffing
+      reply.header('X-Content-Type-Options', 'nosniff');
+
+      // X-Frame-Options: prevent clickjacking
+      reply.header('X-Frame-Options', 'DENY');
+
+      // X-XSS-Protection: legacy XSS protection
+      reply.header('X-XSS-Protection', '1; mode=block');
+
+      // Referrer-Policy: control referrer information
+      reply.header('Referrer-Policy', 'strict-origin-when-cross-origin');
+
+      // Permissions-Policy: restrict browser features
+      reply.header(
+        'Permissions-Policy',
+        'camera=(), microphone=(), geolocation=(), usb=(), magnetometer=(), gyroscope=(), accelerometer=()'
+      );
+
+      // Content-Security-Policy: restrict resource loading
+      reply.header(
+        'Content-Security-Policy',
+        "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; connect-src 'self'; frame-src 'none'; object-src 'none'"
+      );
+    });
+
     app.useGlobalPipes(
       new ValidationPipe({
         whitelist: true,
