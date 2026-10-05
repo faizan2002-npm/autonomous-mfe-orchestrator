@@ -23,7 +23,6 @@ coverage
 pnpm-debug.log*
 .turbo
 .vercel
-.env.example
 README.md
 docs/
 CHANGELOG.md
@@ -35,7 +34,6 @@ docker-compose*.yml
 .prettier*
 .eslint*
 .editorconfig
-tsconfig*.json
 vitest.config.ts
 jest.config.js
 playwright.config.ts

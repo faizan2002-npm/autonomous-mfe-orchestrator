@@ -8,7 +8,7 @@ WORKDIR /app
 RUN npm install -g pnpm@9
 
 # Copy package files
-COPY pnpm-lock.yaml pnpm-workspace.yaml package.json ./
+COPY pnpm-lock.yaml pnpm-workspace.yaml package.json tsconfig.base.json ./
 
 # Copy all packages and apps
 COPY packages ./packages
@@ -18,16 +18,11 @@ COPY .npmrc .npmrc
 # Install dependencies
 RUN pnpm install --frozen-lockfile
 
-# Build shared packages first, then gateway
-RUN pnpm --filter @orchestrator/shared-types build
-RUN pnpm --filter @orchestrator/database build
-RUN pnpm --filter @orchestrator/core build
-RUN pnpm --filter @orchestrator/crypto build
-RUN pnpm --filter @orchestrator/config build
-RUN pnpm --filter @orchestrator/adapter-runtime build
-RUN pnpm --filter @orchestrator/gemini-client build
-RUN pnpm --filter @orchestrator/upstream-client build
-RUN pnpm --filter api-gateway build
+# Build the gateway and every workspace package it depends on, in dependency order
+RUN pnpm --filter "@orchestrator/gateway..." build
+
+# Bundle the gateway with only its production dependencies (workspace packages included)
+RUN pnpm --filter @orchestrator/gateway deploy --prod /out
 
 # Stage 2: Runtime
 FROM node:20-alpine
@@ -37,18 +32,12 @@ WORKDIR /app
 # Install dumb-init for proper signal handling
 RUN apk add --no-cache dumb-init curl
 
-# Install pnpm
-RUN npm install -g pnpm@9
-
 # Create non-root user
 RUN addgroup -g 1001 -S nodejs
 RUN adduser -S nodejs -u 1001
 
-# Copy from builder: only production dependencies
-COPY --from=builder --chown=nodejs:nodejs /app/node_modules ./node_modules
-COPY --from=builder --chown=nodejs:nodejs /app/packages ./packages
-COPY --from=builder --chown=nodejs:nodejs /app/apps/api-gateway/dist ./dist
-COPY --from=builder --chown=nodejs:nodejs /app/apps/api-gateway/package.json ./package.json
+# Copy the self-contained production bundle from the builder
+COPY --from=builder --chown=nodejs:nodejs /out ./
 
 # Copy .env.example for reference (not used at runtime)
 COPY --chown=nodejs:nodejs .env.example .env.example

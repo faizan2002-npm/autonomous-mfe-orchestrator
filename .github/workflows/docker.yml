@@ -56,8 +56,8 @@ jobs:
           push: ${{ github.event_name != 'pull_request' }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=registry,ref=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:buildcache
-          cache-to: type=registry,ref=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:buildcache,mode=max
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
 
   test-image:
     needs: build
@@ -83,7 +83,10 @@ jobs:
       - name: Test image build
         run: |
           docker run --rm orchestrator-gateway:test node --version
-          docker run --rm orchestrator-gateway:test npm list
+          # With no env vars the gateway must load all its modules, then stop at config validation
+          output=$(docker run --rm orchestrator-gateway:test node dist/main.js 2>&1 || true)
+          echo "$output"
+          echo "$output" | grep -q "Missing required environment variables"
 
       - name: Test health endpoint (basic)
         run: |
