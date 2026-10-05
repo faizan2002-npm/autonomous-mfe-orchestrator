@@ -83,3 +83,12 @@ test('email providers and web push are validated together with their credentials
   const push = loadGatewayConfig(testEnv({ VAPID_PUBLIC_KEY: 'pub', VAPID_PRIVATE_KEY: 'priv' })).push;
   assert.equal(push?.subject, 'mailto:admin@example.com');
 });
+
+test('METRICS_TOKEN is optional but must be long enough when set', () => {
+  assert.equal(loadGatewayConfig(testEnv({})).metricsToken, undefined);
+  assert.equal(
+    loadGatewayConfig(testEnv({ METRICS_TOKEN: 'a'.repeat(32) })).metricsToken,
+    'a'.repeat(32),
+  );
+  assert.throws(() => loadGatewayConfig(testEnv({ METRICS_TOKEN: 'short' })), /METRICS_TOKEN/);
+});

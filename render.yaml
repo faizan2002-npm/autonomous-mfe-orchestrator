@@ -1,0 +1,77 @@
+# Render Blueprint: New > Blueprint > pick this repository.
+# Values marked `sync: false` are asked for once when the Blueprint is created; see docs/cloud-deploy.md.
+services:
+  # API gateway, built from the repository Dockerfile.
+  - type: web
+    name: mfe-orchestrator-gateway
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    plan: free
+    # Closest Render region to the Supabase pooler in ap-south-1.
+    region: singapore
+    branch: main
+    autoDeploy: true
+    # /health/ready checks Postgres and Redis, so a bad connection string fails the deploy.
+    healthCheckPath: /health/ready
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: GATEWAY_PORT
+        value: "10000"
+      # Supabase Postgres (transaction pooler is derived from these three).
+      - key: SUPABASE_PROJECT_REF
+        sync: false
+      - key: SUPABASE_DB_PASSWORD
+        sync: false
+      - key: SUPABASE_POOLER_HOST
+        value: aws-0-ap-south-1.pooler.supabase.com
+      # Upstash Redis, rediss:// URL.
+      - key: REDIS_URL
+        sync: false
+      # Must be the same values the existing data was written with (see .env).
+      - key: ENCRYPTION_KEY
+        sync: false
+      - key: KEY_PEPPER
+        sync: false
+      # Comma-separated Vercel URLs of the dashboard, shell and both remotes.
+      - key: ALLOWED_ORIGINS
+        sync: false
+      # Dashboard URL on Vercel, used in invitation links.
+      - key: APP_URL
+        sync: false
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: GEMINI_MODEL
+        value: gemini-3.5-flash-lite
+      - key: EMAIL_PROVIDER
+        value: log
+      # Bearer token Grafana Cloud uses to scrape /metrics.
+      - key: METRICS_TOKEN
+        generateValue: true
+
+  # Example backend consumer that aggregates healing reports from the gateway.
+  - type: web
+    name: mfe-orchestrator-report-service
+    runtime: node
+    plan: free
+    region: singapore
+    branch: main
+    autoDeploy: true
+    buildCommand: >-
+      corepack enable && corepack prepare pnpm@9.12.0 --activate &&
+      pnpm install --frozen-lockfile --ignore-scripts &&
+      pnpm --filter "@orchestrator/report-service..." build
+    startCommand: node apps/report-service/dist/main.js
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_VERSION
+        value: "22"
+      - key: NODE_ENV
+        value: production
+      # https://mfe-orchestrator-gateway.onrender.com/api (the gateway's Render URL plus /api).
+      - key: GATEWAY_URL
+        sync: false
+      # REPORT_SERVICE_KEY from `pnpm db:seed --write-env`.
+      - key: GATEWAY_API_KEY
+        sync: false

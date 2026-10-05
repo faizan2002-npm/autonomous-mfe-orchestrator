@@ -30,6 +30,8 @@ export interface GatewayConfig {
   email: EmailConfig;
   /** Web push; disabled unless a VAPID key pair is configured. */
   push: { publicKey: string; privateKey: string; subject: string } | null;
+  /** Static bearer token that lets a scraper (e.g. Grafana Cloud) read /metrics; unset allows only signed-in users. */
+  metricsToken?: string;
 }
 
 export type EmailConfig =
@@ -87,6 +89,7 @@ export function loadGatewayConfig(env: Environment): GatewayConfig {
     ),
     email: readEmail(env),
     push: readPush(env),
+    metricsToken: readMetricsToken(env),
   };
 }
 
@@ -117,6 +120,14 @@ function readPush(env: Environment): GatewayConfig['push'] {
   const subject = env.VAPID_SUBJECT?.trim() || 'mailto:admin@example.com';
   if (!/^(mailto:|https:)/.test(subject)) throw new Error('VAPID_SUBJECT must be a mailto: or https: URL');
   return { publicKey, privateKey, subject };
+}
+
+function readMetricsToken(env: Environment): string | undefined {
+  const token = env.METRICS_TOKEN?.trim();
+  if (!token) return undefined;
+  if (token.length < 24)
+    throw new Error('METRICS_TOKEN must be at least 24 characters (openssl rand -base64 32)');
+  return token;
 }
 
 function readUrl(env: Environment, name: string, fallback: string): string {

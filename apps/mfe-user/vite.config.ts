@@ -4,11 +4,18 @@ import react from '@vitejs/plugin-react';
 import { defineConfig } from 'vite';
 
 const PORT = 5001;
+// Where this remote is served from: VITE_MFE_USER_URL, else the Vercel production domain, else local dev.
+const PUBLIC_URL = (
+  process.env.VITE_MFE_USER_URL ||
+  (process.env.VERCEL_PROJECT_PRODUCTION_URL
+    ? `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}`
+    : `http://localhost:${PORT}`)
+).replace(/\/$/, '');
 
 export default defineConfig({
   envDir: new URL('../..', import.meta.url).pathname,
   // Absolute base so the host can load this remote's chunks cross-origin.
-  base: `http://localhost:${PORT}/`,
+  base: `${PUBLIC_URL}/`,
   plugins: [
     react(),
     tailwindcss(),
