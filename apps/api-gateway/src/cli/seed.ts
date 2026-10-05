@@ -1,7 +1,7 @@
 /**
- * Seeds a ready-to-demo tenant: the Demo Organization, its two mock services, a frontend
- * consumer (acme-portal) and a backend consumer (report-service), each with a fresh key,
- * and a conservative org-wide promotion policy.
+ * Seeds a ready-to-demo tenant: the Demo Organization, frontend and backend consumers
+ * (acme-portal and report-service), each with a fresh key, and a conservative org-wide
+ * promotion policy.
  *
  *   pnpm db:seed                          # print the new keys
  *   pnpm db:seed --write-env              # store them in .env instead of printing
@@ -20,7 +20,6 @@ import {
   orgInvitations,
   organizations,
   promotionPolicies,
-  serviceRegistries,
 } from '@orchestrator/database';
 import { and, eq, isNull } from 'drizzle-orm';
 import { loadGatewayConfig } from '../config/gateway-config.js';
@@ -54,42 +53,6 @@ async function upsertOrg() {
     .from(organizations)
     .where(eq(organizations.slug, 'demo'));
   return org;
-}
-
-async function upsertService(
-  orgId: string,
-  serviceName: string,
-  baseUrl: string,
-  description: string,
-) {
-  await db
-    .insert(serviceRegistries)
-    .values({
-      orgId,
-      serviceName,
-      endpointUrl: baseUrl,
-      description,
-      healthPath: '/health',
-    })
-    // The demo services follow USER_SERVICE_URL / ORDER_SERVICE_URL on every run.
-    .onConflictDoUpdate({
-      target: [serviceRegistries.orgId, serviceRegistries.serviceName],
-      set: {
-        endpointUrl: baseUrl,
-        healthPath: '/health',
-        updatedAt: new Date(),
-      },
-    });
-  const [service] = await db
-    .select()
-    .from(serviceRegistries)
-    .where(
-      and(
-        eq(serviceRegistries.orgId, orgId),
-        eq(serviceRegistries.serviceName, serviceName),
-      ),
-    );
-  return service;
 }
 
 async function upsertConsumer(
@@ -157,31 +120,19 @@ function setEnv(values: Record<string, string>) {
 
 try {
   const org = await upsertOrg();
-  const users = await upsertService(
-    org.id,
-    'user-service',
-    process.env.USER_SERVICE_URL || 'http://localhost:3001',
-    'Mock user profiles with a chaos switch',
-  );
-  const orders = await upsertService(
-    org.id,
-    'order-service',
-    process.env.ORDER_SERVICE_URL || 'http://localhost:3002',
-    'Mock orders with a chaos switch',
-  );
   const portal = await upsertConsumer(
     org.id,
     'acme-portal',
     'frontend',
     'Module Federation shell and remotes',
-    [users.id, orders.id],
+    [],
   );
   const reports = await upsertConsumer(
     org.id,
     'report-service',
     'backend',
     'Backend that builds order reports',
-    [orders.id],
+    [],
   );
   const portalKey = await issueKey(
     org.id,
@@ -207,7 +158,7 @@ try {
     .onConflictDoNothing();
 
   console.log(
-    `Demo Organization ready (slug "demo"): user-service, order-service, acme-portal, report-service, Default policy.`,
+    `Demo Organization ready (slug "demo"): acme-portal, report-service, Default policy.`,
   );
   if (writeEnv) {
     setEnv({ VITE_MFE_CONSUMER_KEY: portalKey, REPORT_SERVICE_KEY: reportKey });

@@ -162,7 +162,6 @@ See `TEST-GUIDE.md` for detailed testing strategies, writing new tests, and debu
 | Adapter safety | `@babel/parser` AST validation, Node `vm` sandbox |
 | Dashboard | React 19, Vite, Tailwind CSS + shadcn/ui, TanStack Query, React Router, Recharts |
 | Micro-frontends | React + Vite with Module Federation (`@module-federation/vite`) |
-| Demo services | Fastify mock user and order services with a chaos switch |
 | Monorepo | pnpm workspaces |
 
 ## Quick Start
@@ -214,7 +213,6 @@ Open http://localhost:5100, **create an account** and either accept your invitat
 | Micro-frontend shell (host) | http://localhost:5000 |
 | User / order micro-frontends (remotes) | http://localhost:5001 · http://localhost:5002 |
 | API gateway | http://localhost:4000 |
-| User / order services | http://localhost:3001 · http://localhost:3002 |
 
 > Supabase's built-in email service is heavily rate limited. For real sign-ups, configure custom SMTP under Authentication → Emails, or turn off email confirmation while developing.
 >
@@ -251,24 +249,11 @@ The UI hides actions your role can't perform; the API enforces the same rules.
 
 ### Micro-frontend shell (`apps/mfe-shell`, `apps/mfe-user`, `apps/mfe-order`)
 
-The shell is a Module Federation **host** that loads two independently served **remotes** at runtime from their `remoteEntry.js`: `ProfileCard` (user-service) and `OrderCard` (order-service). They call the gateway with the `acme-portal` publishable key (`VITE_MFE_CONSUMER_KEY`, written by `pnpm db:seed --write-env`). Each card is written strictly against the contract its backend had when it was built, so upstream drift makes it genuinely crash. The shell isolates each crash in its own error boundary.
+The shell is a Module Federation **host** that loads two independently served **remotes** at runtime from their `remoteEntry.js`. They call the gateway with the `acme-portal` publishable key (`VITE_MFE_CONSUMER_KEY`, written by `pnpm db:seed --write-env`). Each remote is written strictly against the contract its backend had when it was built, so upstream drift makes it genuinely crash. The shell isolates each crash in its own error boundary.
 
 Header controls:
 - **Canary / Sampled / Baseline:** which traffic group the shell's requests join.
-- **Auto-refresh:** re-fetches every 3 s, so you can watch a card heal.
-
-## Demo: Watch It Heal
-
-After `pnpm db:seed --write-env --owner you@example.com` and `pnpm dev`, accept the invitation, open **Demo Lab** in the Demo Organization and the shell side by side.
-
-1. In the shell, choose **Baseline**. Both cards render.
-2. In Demo Lab, switch **user-service** to its drifted schema. The profile card crashes (`firstName` became `first_name`, `profile` was flattened).
-3. Send a request with **Force canary** (the demo key is prefilled). The pipeline shows drift detected → patch generated → canary deployed.
-4. In the shell, choose **Canary**. The profile card renders again, marked *Self-healed by gateway*. On **Baseline** it still crashes: only canary traffic is patched.
-5. Open the patch, run the sandbox preview, and click **Promote**. Baseline traffic heals too, and the audit log records your email.
-6. Repeat with **order-service**. Its drift also restructures the line-item array, which the rule-based fallback cannot repair, so this one needs Gemini. Without a key, the patch appears under *Rejected* with the reason.
-
-Rolling a patch back makes the gateway forget that drift, so the next drifted response triggers healing again and the demo can be repeated.
+- **Auto-refresh:** re-fetches every 3 s, so you can watch updates.
 
 ## Configuration
 
@@ -298,8 +283,6 @@ All configuration is validated once at startup. An invalid or missing value stop
 | `DRIFT_SIMILARITY_THRESHOLD` | `0.15` | Default drift coefficient (0–1) above which a response counts as drifted |
 | `CANARY_TRAFFIC_PERCENTAGE` | `10` | Default share of traffic (0–100) a new patch receives before promotion |
 | `GATEWAY_PORT` | `4000` | Gateway port |
-| `USER_SERVICE_PORT` / `ORDER_SERVICE_PORT` | `3001` / `3002` | Demo service ports |
-| `USER_SERVICE_URL` / `ORDER_SERVICE_URL` | `http://localhost:3001` / `:3002` | Base URLs `pnpm db:seed` registers for the demo services |
 | `VITE_GATEWAY_URL` | `http://localhost:4000` | Gateway URL used by the frontends |
 | `VITE_SUPABASE_URL`, `VITE_SUPABASE_PUBLISHABLE_KEY` | *required for the dashboard* | Supabase Auth for the dashboard |
 | `VITE_MFE_CONSUMER_KEY` | *from `pnpm db:seed`* | Publishable key the demo shell and Demo Lab use |
@@ -388,11 +371,7 @@ Only `CANARY` patches can be promoted and only live (`CANARY` or `ACTIVE`) patch
 │ Postgres +   │      │ Redis        │      │ API (optional)   │
 │ Auth (JWKS)  │      │ caches,      │      └──────────────────┘
 └──────────────┘      │ canary stats │
-       ▲              └──────────────┘
-       │ proxied upstream calls
-┌──────┴───────────────────────────────────┐
-│ User Service :3001    Order Service :3002 │
-└───────────────────────────────────────────┘
+                      └──────────────┘
 ```
 
 Every row belongs to an organization, and every query is scoped by it. Postgres is the source of truth for live patches. Each gateway instance keeps an in-memory copy for routing and reloads it from the database on startup. Live events are in-process, so with several gateway instances each dashboard sees the events of the instance it is connected to.
@@ -428,7 +407,6 @@ Every row belongs to an organization, and every query is scoped by it. Postgres 
 | `packages/shared-types` | Domain enums and the API response types shared by the gateway and the frontends |
 | `packages/config` | Connection settings shared by the gateway and Drizzle Kit |
 | `packages/upstream-client`, `gemini-client` | HTTP clients for upstream services and the Gemini API |
-| `services/user-service`, `order-service` | Mock backends with a chaos switch |
 
 ### Database
 

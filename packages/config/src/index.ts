@@ -67,13 +67,3 @@ export function getRedisUrl(env: Environment = process.env): string {
   return url;
 }
 
-export function getServiceEndpoints(
-  env: Environment = process.env,
-): Readonly<Record<string, string>> {
-  return Object.freeze(
-    Object.assign(Object.create(null) as Record<string, string>, {
-      'user-service': env.USER_SERVICE_URL || 'http://localhost:3001',
-      'order-service': env.ORDER_SERVICE_URL || 'http://localhost:3002',
-    }),
-  );
-}
