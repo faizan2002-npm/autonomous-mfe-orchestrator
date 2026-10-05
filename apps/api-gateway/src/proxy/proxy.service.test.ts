@@ -2,9 +2,11 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
+import { EMPTY } from 'rxjs';
 import type { CanaryService } from '../canary/canary.service.js';
 import type { ResolvedConsumer } from '../consumers/consumers.service.js';
 import { GatewayEventsService } from '../events/gateway-events.service.js';
+import type { RedisEventService } from '../events/redis-event.service.js';
 import type { ObservationService } from '../observation/observation.service.js';
 import type { ServiceRegistryService } from '../services/service-registry.service.js';
 import { ProxyService } from './proxy.service.js';
@@ -53,6 +55,17 @@ test('proxy forwards for granted services, observes successful JSON per consumer
   } as unknown as ServiceRegistryService;
   const observed: unknown[] = [];
   let patches = 0;
+
+  const mockRedisEvents: RedisEventService = {
+    stream: () => EMPTY,
+    publish: () => {},
+    onApplicationBootstrap: async () => {},
+    onApplicationShutdown: async () => {},
+  } as any;
+
+  const gatewayEvents = new GatewayEventsService(mockRedisEvents);
+  gatewayEvents.onApplicationBootstrap();
+
   const service = new ProxyService(
     {
       observe: async (observation: unknown) => {
@@ -66,7 +79,7 @@ test('proxy forwards for granted services, observes successful JSON per consumer
       },
     } as unknown as CanaryService,
     registry,
-    new GatewayEventsService(),
+    gatewayEvents,
   );
   const request = {
     consumer,

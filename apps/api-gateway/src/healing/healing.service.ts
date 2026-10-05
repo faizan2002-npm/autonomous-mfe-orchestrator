@@ -4,34 +4,48 @@ import {
   Logger,
   type OnModuleDestroy,
 } from '@nestjs/common';
+import type { Redis } from 'ioredis';
 import { CanaryService } from '../canary/canary.service.js';
 import { CognitiveService } from '../cognitive/cognitive.service.js';
 import type { PatchGenerationTask } from '../cognitive/patch-generation.js';
+import { withRedisLock } from '../common/redis-lock.js';
+import { REDIS_CLIENT } from '../redis/redis.tokens.js';
 
-/** Runs generate -> deploy in the background, at most once at a time per contract. */
+/** Runs generate -> deploy in the background, at most once per contract across all instances. */
 @Injectable()
 export class HealingService implements OnModuleDestroy {
   private readonly logger = new Logger(HealingService.name);
+  /** Track pending work for shutdown (don't allow new tasks once shutdown starts). */
   private readonly pending = new Map<string, Promise<void>>();
   private shuttingDown = false;
+  /** Healing lock TTL: 30 seconds (same as CognitiveService timeout). */
+  private readonly lockTtlMs = 30_000;
 
   constructor(
+    @Inject(REDIS_CLIENT) private readonly redis: Redis,
     @Inject(CognitiveService)
     private readonly cognitiveService: CognitiveService,
     @Inject(CanaryService) private readonly canaryService: CanaryService,
   ) {}
 
   schedule(task: PatchGenerationTask): void {
-    // Coalesce repeated observations while this contract is being healed.
-    if (this.shuttingDown || this.pending.has(task.contractId)) return;
-    const work = new Promise<void>((resolve) => setImmediate(resolve))
-      .then(() => this.heal(task))
+    if (this.shuttingDown) return;
+
+    // Acquire distributed lock across all instances; if another instance is healing
+    // this contract, skip. Otherwise, run the healing task in the background.
+    const work = withRedisLock(
+      this.redis,
+      `healing:${task.contractId}`,
+      this.lockTtlMs,
+      () => this.heal(task),
+    )
       .catch((error: unknown) => {
         this.logger.error(
           `Healing failed for ${task.contractId}: ${String(error)}`,
         );
       })
       .finally(() => this.pending.delete(task.contractId));
+
     this.pending.set(task.contractId, work);
   }
 

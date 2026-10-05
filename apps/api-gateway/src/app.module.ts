@@ -1,10 +1,12 @@
 import { Module } from '@nestjs/common';
 import { AuthModule } from './auth/auth.module.js';
 import { GatewayConfigModule } from './config/config.module.js';
+import { CommonModule } from './common/common.module.js';
 import { ConsumersModule } from './consumers/consumers.module.js';
 import { DemoModule } from './demo/demo.module.js';
 import { EventsModule } from './events/events.module.js';
 import { GovernanceModule } from './governance/governance.module.js';
+import { HealthModule } from './health/health.module.js';
 import { NotificationsModule } from './notifications/notifications.module.js';
 import { OpenApiModule } from './openapi/openapi.module.js';
 import { OrgsModule } from './orgs/orgs.module.js';
@@ -15,6 +17,7 @@ import { ServicesModule } from './services/services.module.js';
 @Module({
   imports: [
     GatewayConfigModule,
+    CommonModule,
     EventsModule,
     AuthModule,
     OrgsModule,
@@ -26,6 +29,7 @@ import { ServicesModule } from './services/services.module.js';
     NotificationsModule,
     PoliciesModule,
     OpenApiModule,
+    HealthModule,
   ],
 })
 export class AppModule {}

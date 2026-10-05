@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import type { OrgSettingsService } from '../orgs/org-settings.service.js';
+import type { CircuitBreakerService } from '../common/circuit-breaker.service.js';
 import { InferenceService } from './inference.service.js';
 import type { PatchGenerationTask } from './patch-generation.js';
 
@@ -19,7 +20,14 @@ test('without a Gemini key for the org the deterministic fallback is used and no
         gemini: { model: 'gemini-test' },
       }),
     } as unknown as OrgSettingsService;
-    const service = new InferenceService(settings);
+
+    const mockCircuitBreaker = {
+      get: () => ({
+        execute: (task: () => Promise<string>) => task(),
+      }),
+    } as unknown as CircuitBreakerService;
+
+    const service = new InferenceService(settings, mockCircuitBreaker);
     const task: PatchGenerationTask = {
       driftEventId: 'event',
       contractId: 'contract',

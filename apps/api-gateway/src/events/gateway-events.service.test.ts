@@ -1,10 +1,21 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { EMPTY } from 'rxjs';
 import type { GatewayEvent } from '@orchestrator/shared-types';
 import { GatewayEventsService } from './gateway-events.service.js';
+import type { RedisEventService } from './redis-event.service.js';
 
 test('published events are timestamped and delivered to subscribers', () => {
-  const events = new GatewayEventsService();
+  const mockRedisEvents: RedisEventService = {
+    stream: () => EMPTY,
+    publish: () => {},
+    onApplicationBootstrap: async () => {},
+    onApplicationShutdown: async () => {},
+  } as any;
+
+  const events = new GatewayEventsService(mockRedisEvents);
+  events.onApplicationBootstrap();
+
   const received: GatewayEvent[] = [];
   const subscription = events
     .stream()

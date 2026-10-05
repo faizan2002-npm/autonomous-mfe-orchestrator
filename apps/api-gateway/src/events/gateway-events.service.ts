@@ -1,6 +1,10 @@
-import { Injectable } from '@nestjs/common';
+import {
+  Injectable,
+  type OnApplicationBootstrap,
+} from '@nestjs/common';
 import type { GatewayEvent } from '@orchestrator/shared-types';
-import { Observable, Subject } from 'rxjs';
+import { Observable, Subject, merge } from 'rxjs';
+import { RedisEventService } from './redis-event.service.js';
 
 /** Distributive Omit so each event variant keeps its own fields. */
 export type GatewayEventInput = GatewayEvent extends infer E
@@ -9,19 +13,46 @@ export type GatewayEventInput = GatewayEvent extends infer E
     : never
   : never;
 
-/** In-process pub/sub for pipeline events streamed to the dashboard. */
+/**
+ * Multi-instance event bus.
+ * - Publishes to Redis pub/sub (distributed across instances)
+ * - Streams events from all instances to local SSE clients
+ * - Local Subject caches events for SSE clients connected to this instance
+ */
 @Injectable()
-export class GatewayEventsService {
-  private readonly events = new Subject<GatewayEvent>();
+export class GatewayEventsService implements OnApplicationBootstrap {
+  private readonly localEvents = new Subject<GatewayEvent>();
+  private mergedStream?: Observable<GatewayEvent>;
 
-  publish(event: GatewayEventInput): void {
-    this.events.next({
-      ...event,
-      at: new Date().toISOString(),
-    } as GatewayEvent);
+  constructor(private readonly redisEvents: RedisEventService) {}
+
+  onApplicationBootstrap(): void {
+    // Merge local and Redis event streams; subscribe to ensure side effects happen
+    this.mergedStream = merge(
+      this.localEvents.asObservable(),
+      this.redisEvents.stream(),
+    );
+    this.mergedStream.subscribe();
   }
 
+  publish(event: GatewayEventInput): void {
+    const fullEvent = {
+      ...event,
+      at: new Date().toISOString(),
+    } as GatewayEvent;
+
+    // Publish to Redis (all instances will receive it)
+    this.redisEvents.publish(fullEvent);
+
+    // Also emit locally (for immediate local SSE clients, plus mergedStream subscribers)
+    this.localEvents.next(fullEvent);
+  }
+
+  /** Returns observable of events from all instances (merged Redis + local). */
   stream(): Observable<GatewayEvent> {
-    return this.events.asObservable();
+    if (!this.mergedStream) {
+      throw new Error('GatewayEventsService not yet initialized');
+    }
+    return this.mergedStream;
   }
 }

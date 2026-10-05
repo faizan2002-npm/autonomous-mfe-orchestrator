@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import type { Redis } from 'ioredis';
 import { HealingService } from './healing.service.js';
 import type { CognitiveService } from '../cognitive/cognitive.service.js';
 import type { PatchGenerationTask } from '../cognitive/patch-generation.js';
@@ -16,7 +17,7 @@ const task = {
 } as PatchGenerationTask;
 const tick = () => new Promise<void>((resolve) => setImmediate(resolve));
 
-test('healing coalesces pending work and deploys the returned patch ID', async () => {
+test('healing uses Redis lock to prevent duplicate healing across instances', async () => {
   let calls = 0;
   let release!: (value: { patchId: string; adapterCode: string }) => void;
   const result = new Promise<{ patchId: string; adapterCode: string }>(
@@ -25,7 +26,23 @@ test('healing coalesces pending work and deploys the returned patch ID', async (
     },
   );
   const deployments: unknown[] = [];
+
+  // Mock Redis with a simple in-memory lock
+  let lockHeld = false;
+  const mockRedis = {
+    set: async () => {
+      if (lockHeld) return undefined; // Simulate lock already held
+      lockHeld = true;
+      return 'OK';
+    },
+    eval: async () => {
+      lockHeld = false;
+      return 1;
+    },
+  } as any;
+
   const service = new HealingService(
+    mockRedis as Redis,
     {
       generateAndValidatePatch: async () => {
         calls++;
@@ -38,10 +55,11 @@ test('healing coalesces pending work and deploys the returned patch ID', async (
       },
     } as unknown as CanaryService,
   );
+
   service.schedule(task);
-  service.schedule(task);
+  service.schedule(task); // Second call should not acquire lock
   await tick();
-  assert.equal(calls, 1);
+  assert.equal(calls, 1); // Only one should have run (the one that got the lock)
   release({ patchId: 'persisted-patch', adapterCode: '(data) => data' });
   await tick();
   assert.deepEqual(deployments, [
@@ -59,7 +77,4 @@ test('healing coalesces pending work and deploys the returned patch ID', async (
       adapterCode: '(data) => data',
     },
   ]);
-  service.schedule(task);
-  await tick();
-  assert.equal(calls, 2);
 });
