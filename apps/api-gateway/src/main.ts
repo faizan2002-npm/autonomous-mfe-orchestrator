@@ -5,38 +5,6 @@ import { GracefulShutdownHandler } from './shutdown/shutdown.handler.js';
 
 const logger = new Logger('Bootstrap');
 
-/**
- * Validate that all required environment variables are set.
- * Fails fast with a clear message listing which variables are missing.
- */
-function validateEnvironment(): void {
-  const requiredVars = [
-    'SUPABASE_PROJECT_REF',
-    'SUPABASE_DB_PASSWORD',
-    'SUPABASE_POOLER_HOST',
-    'ENCRYPTION_KEY',
-    'KEY_PEPPER',
-    'GATEWAY_PORT',
-    'ALLOWED_ORIGINS',
-    'USER_SERVICE_URL',
-    'ORDER_SERVICE_URL',
-    'GEMINI_API_KEY',
-  ];
-
-  const missing = requiredVars.filter(
-    (variable) => !process.env[variable],
-  );
-
-  if (missing.length > 0) {
-    logger.error(
-      `Missing required environment variables: ${missing.join(', ')}`,
-    );
-    process.exit(1);
-  }
-
-  logger.log('All required environment variables are set');
-}
-
 // Catch uncaught exceptions (synchronous errors in async handlers)
 process.on('uncaughtException', (error: Error) => {
   logger.error(`Uncaught exception: ${error.message}`, error.stack);
@@ -69,7 +37,8 @@ async function bootstrap(): Promise<void> {
   }
 }
 
-validateEnvironment();
+// Configuration is validated when the gateway loads it (loadGatewayConfig), which fails fast
+// with a message naming the missing or invalid variable.
 void bootstrap().catch((error: unknown) => {
   new Logger('Bootstrap').error(String(error));
   process.exitCode = 1;

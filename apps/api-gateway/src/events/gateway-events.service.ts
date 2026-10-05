@@ -44,15 +44,23 @@ export class GatewayEventsService implements OnApplicationBootstrap {
       at: new Date().toISOString(),
     } as GatewayEvent;
 
-    // Publish to Redis (all instances will receive it)
+    // Publish to Redis for the other instances
     this.redisEvents.publish(fullEvent);
 
     // Also emit locally (for immediate local SSE clients, plus mergedStream subscribers)
     this.localEvents.next(fullEvent);
   }
 
-  /** Returns observable of events from all instances (merged Redis + local). */
+  /** Events from all instances (local + Redis), for live views such as SSE. */
   stream(): Observable<GatewayEvent> {
     return this.mergedStream;
+  }
+
+  /**
+   * Events published by this instance only. Side effects (notifications, drift memory) subscribe
+   * here, so each event is handled once by the instance that produced it, not once per instance.
+   */
+  localStream(): Observable<GatewayEvent> {
+    return this.localEvents.asObservable();
   }
 }

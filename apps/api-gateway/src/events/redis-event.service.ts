@@ -5,6 +5,7 @@ import {
   type OnApplicationBootstrap,
   type OnApplicationShutdown,
 } from '@nestjs/common';
+import { randomUUID } from 'node:crypto';
 import type { Redis } from 'ioredis';
 import type { GatewayEvent } from '@orchestrator/shared-types';
 import { REDIS_CLIENT } from '../redis/redis.tokens.js';
@@ -22,6 +23,8 @@ export class RedisEventService
   private readonly channel = 'gateway:events';
   private subscriber: Redis | null = null;
   private readonly events = new Subject<GatewayEvent>();
+  /** Marks this instance's messages, which it already delivered locally. */
+  private readonly instanceId = randomUUID();
 
   constructor(@Inject(REDIS_CLIENT) private readonly redis: Redis) {}
 
@@ -33,8 +36,11 @@ export class RedisEventService
       this.subscriber.on('message', (ch, msg) => {
         if (ch !== this.channel) return;
         try {
-          const event = JSON.parse(msg) as GatewayEvent;
-          this.events.next(event);
+          const { origin, event } = JSON.parse(msg) as {
+            origin: string;
+            event: GatewayEvent;
+          };
+          if (origin !== this.instanceId) this.events.next(event);
         } catch (error) {
           this.logger.error(`Failed to parse event: ${error}`);
         }
@@ -53,9 +59,9 @@ export class RedisEventService
     }
   }
 
-  /** Publishes event to Redis pub/sub (all instances receive it). */
+  /** Publishes event to Redis pub/sub for the other instances. */
   publish(event: GatewayEvent): void {
-    const json = JSON.stringify(event);
+    const json = JSON.stringify({ origin: this.instanceId, event });
     this.redis
       .publish(this.channel, json)
       .catch((error: Error) =>
@@ -63,7 +69,7 @@ export class RedisEventService
       );
   }
 
-  /** Returns observable of events received from Redis (from all instances). */
+  /** Events published by the other instances. */
   stream() {
     return this.events.asObservable();
   }
