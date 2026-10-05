@@ -9,7 +9,7 @@ This document captures baseline load testing results for the Autonomous MFE Orch
 - **Gateway**: NestJS 10 on Fastify
 - **Database**: PostgreSQL 17 (ephemeral Docker container)
 - **Cache**: Redis 7 (ephemeral Docker container)
-- **Test Framework**: k6
+- **Test Framework**: k6. It is a standalone binary, not an npm package, so `pnpm install` does not provide it: install it first ([k6 installation](https://grafana.com/docs/k6/latest/set-up/install-k6/), e.g. `brew install k6` or `sudo apt-get install k6`). The `apps/load-tests` scripts call `k6` from your `PATH`.
 - **Load Profile**: 100 concurrent virtual users (VUs), 5-minute duration
 
 ## Test Scenarios
