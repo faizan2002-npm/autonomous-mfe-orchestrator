@@ -43,7 +43,9 @@ export class PolicyEvaluator implements OnApplicationBootstrap, OnModuleDestroy 
     this.timer = setInterval(() => {
       if (!this.running)
         this.running = this.run()
-          .catch((error: unknown) => this.logger.error(`Policy evaluation failed: ${String(error)}`))
+          .catch((error: unknown) => this.logger.error('Policy evaluation cycle failed', {
+            error: error instanceof Error ? error.message : String(error),
+          }))
           .finally(() => (this.running = undefined));
     }, INTERVAL_MS);
   }
@@ -86,7 +88,14 @@ export class PolicyEvaluator implements OnApplicationBootstrap, OnModuleDestroy 
           this.logger.log(`Policy "${policy.name}" ${decision.action}d patch ${patch.patchId}.`);
         } catch (error) {
           // A reviewer may have decided in the meantime (409); the next pass sees the new state.
-          this.logger.warn(`Policy ${decision.action} of ${patch.patchId} skipped: ${String(error)}`);
+          this.logger.warn('Policy decision skipped', {
+            patchId: patch.patchId,
+            orgId: patch.orgId,
+            policyName: policy.name,
+            action: decision.action,
+            serviceName: patch.serviceName,
+            error: error instanceof Error ? error.message : String(error),
+          });
         }
         // The evidence behind every automatic decision, kept with the patch.
         if (applied)

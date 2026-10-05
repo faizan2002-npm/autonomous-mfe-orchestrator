@@ -41,7 +41,14 @@ export class HealingService implements OnModuleDestroy {
     )
       .catch((error: unknown) => {
         this.logger.error(
-          `Healing failed for ${task.contractId}: ${String(error)}`,
+          `Healing failed for contract: ${String(error)}`,
+          {
+            contractId: task.contractId,
+            orgId: task.orgId,
+            consumerId: task.consumerId,
+            serviceName: task.serviceName,
+            error: error instanceof Error ? error.message : String(error),
+          },
         );
       })
       .finally(() => this.pending.delete(task.contractId));

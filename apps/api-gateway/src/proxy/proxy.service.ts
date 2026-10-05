@@ -108,15 +108,21 @@ export class ProxyService {
       return { ...response, isPatched: false };
     }
 
-    void this.observationService
-      .observe({
+    // Fire-and-forget observation with 100ms timeout to not block response
+    void Promise.race([
+      this.observationService.observe({
         ...contract,
         serviceId: service.id,
         observedPayload: response.payload,
-      })
-      .catch((error: unknown) =>
-        this.logger.error(`Observation error: ${String(error)}`),
-      );
+      }),
+      new Promise<void>((_, reject) => {
+        setTimeout(() => reject(new Error('Observation timeout')), 100);
+      }),
+    ]).catch((error: unknown) =>
+      this.logger.error(`Observation error: ${String(error)}`, {
+        contractId: contract.contractId,
+      }),
+    );
     const result = {
       status: response.status,
       ...this.canaryService.applyPatch(contract, response.payload, canary),

@@ -122,7 +122,17 @@ export class OutboxWorker implements OnApplicationBootstrap, OnModuleDestroy {
           nextAttemptAt: new Date(Date.now() + backoffMs(delivery.attempts)),
         })
         .where(eq(notificationDeliveries.id, delivery.id));
-      if (dead) this.logger.warn(`Delivery ${delivery.id} (${delivery.channel}) gave up: ${message}`);
+      if (dead) {
+        this.logger.warn('Notification delivery gave up after max attempts', {
+          deliveryId: delivery.id,
+          channel: delivery.channel,
+          event: delivery.event,
+          orgId: delivery.orgId,
+          endpointId: delivery.endpointId,
+          attempts: delivery.attempts,
+          error: message,
+        });
+      }
     }
   }
 
@@ -169,6 +179,10 @@ export class OutboxWorker implements OnApplicationBootstrap, OnModuleDestroy {
       headers['x-orchestrator-signature'] = signWebhook(body, signingSecret);
       headers['x-orchestrator-event'] = delivery.event;
       headers['x-orchestrator-delivery'] = delivery.id;
+    }
+    // Add W3C Trace Context if available in payload (for distributed tracing)
+    if (typeof payload.traceparent === 'string') {
+      headers['traceparent'] = payload.traceparent;
     }
     // Same SSRF protection as proxied traffic: org-supplied URLs never reach internal hosts.
     const response = await this.services.guardedFetch(url, {

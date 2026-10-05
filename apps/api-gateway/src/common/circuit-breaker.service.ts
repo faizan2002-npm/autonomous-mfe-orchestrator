@@ -35,7 +35,7 @@ export interface CircuitBreakerOptions {
   failureThreshold?: number;
   /** Time in ms to wait before attempting recovery (default: 30s). */
   resetTimeoutMs?: number;
-  /** Maximum attempts during HALF_OPEN state before opening again (default: 1). */
+  /** Consecutive successes during HALF_OPEN before closing (default: 5). */
   halfOpenRequests?: number;
 }
 
@@ -62,7 +62,7 @@ class CircuitBreaker {
   ) {
     this.failureThreshold = opts?.failureThreshold ?? 5;
     this.resetTimeoutMs = opts?.resetTimeoutMs ?? 30_000;
-    this.halfOpenRequests = opts?.halfOpenRequests ?? 1;
+    this.halfOpenRequests = opts?.halfOpenRequests ?? 5;
   }
 
   /**
@@ -147,7 +147,7 @@ class RedisCircuitBreaker {
   ) {
     this.failureThreshold = opts?.failureThreshold ?? 5;
     this.resetTimeoutMs = opts?.resetTimeoutMs ?? 30_000;
-    this.halfOpenRequests = opts?.halfOpenRequests ?? 1;
+    this.halfOpenRequests = opts?.halfOpenRequests ?? 5;
   }
 
   async execute<T>(task: () => Promise<T>): Promise<T | undefined> {
@@ -250,8 +250,8 @@ class RedisCircuitBreaker {
   }
 
   private async setState(state: CircuitBreakerState): Promise<void> {
-    // TTL: max time any state persists is the reset timeout
-    const ttl = Math.max(Math.ceil(this.resetTimeoutMs / 1000), 60);
+    // TTL: 24 hours for multi-instance deployments to preserve state across restarts
+    const ttl = 24 * 60 * 60;
     await this.redis.setex(
       `circuit-breaker:${this.key}`,
       ttl,

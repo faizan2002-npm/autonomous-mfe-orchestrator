@@ -1,3 +1,7 @@
+export interface Logger {
+  warn(message: string, data?: Record<string, unknown>): void;
+}
+
 /**
  * Exponential backoff retry policy for upstream service calls.
  * Retries transient errors (5xx, timeouts) but gives up on permanent errors (4xx).
@@ -7,15 +11,18 @@ export class RetryPolicy {
   private readonly initialDelayMs: number;
   private readonly maxDelayMs: number;
   private readonly jitterPercent: number = 10;
+  private readonly logger?: Logger;
 
   constructor(options?: {
     maxAttempts?: number;
     initialDelayMs?: number;
     maxDelayMs?: number;
+    logger?: Logger;
   }) {
     this.maxAttempts = options?.maxAttempts ?? 3;
     this.initialDelayMs = options?.initialDelayMs ?? 100;
     this.maxDelayMs = options?.maxDelayMs ?? 1000;
+    this.logger = options?.logger;
   }
 
   /**
@@ -48,9 +55,12 @@ export class RetryPolicy {
 
         // Wait before retrying
         const delayMs = this.calculateBackoff(attempt);
-        console.warn(
-          `[${name}] Attempt ${attempt} failed (retryable), retrying in ${delayMs}ms: ${lastError.message}`,
-        );
+        this.logger?.warn('Retry attempt failed, will retry', {
+          service: name,
+          attempt,
+          delayMs,
+          error: lastError.message,
+        });
         await this.sleep(delayMs);
       }
     }

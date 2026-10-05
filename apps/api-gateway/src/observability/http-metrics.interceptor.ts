@@ -25,9 +25,13 @@ export class HttpMetricsInterceptor implements NestInterceptor {
     const request = context.switchToHttp().getRequest<Request>();
     const response = context.switchToHttp().getResponse<Response>();
 
-    // Extract/generate request ID
+    // Extract/generate request ID (for backward compatibility)
     const requestId = (request.headers['x-request-id'] as string) || this.generateRequestId();
     request.id = requestId;
+
+    // Extract/generate W3C Trace Context (traceparent header)
+    const traceparent = this.extractOrGenerateTraceparent(request);
+    (request as any).traceparent = traceparent;
 
     // Extract org and user from auth context (if available)
     const orgId = (request as any).orgId || '';
@@ -85,6 +89,47 @@ export class HttpMetricsInterceptor implements NestInterceptor {
         throw error; // Re-throw to preserve error handling behavior
       }),
     );
+  }
+
+  /**
+   * Extract W3C Trace Context from incoming request, or generate new trace/span IDs.
+   * Format: 00-trace_id-span_id-trace_flags
+   * See: https://www.w3.org/TR/trace-context/
+   */
+  private extractOrGenerateTraceparent(request: Request): string {
+    const incoming = request.headers['traceparent'] as string;
+
+    if (incoming && this.isValidTraceparent(incoming)) {
+      // Extract trace ID and flags, generate new span ID for this service
+      const [version, traceId, , traceFlags] = incoming.split('-');
+      const newSpanId = this.generateSpanId();
+      return `${version}-${traceId}-${newSpanId}-${traceFlags}`;
+    }
+
+    // Generate new trace context if not present
+    const traceId = this.generateTraceId();
+    const spanId = this.generateSpanId();
+    const traceFlags = '01'; // Sampled
+    return `00-${traceId}-${spanId}-${traceFlags}`;
+  }
+
+  private isValidTraceparent(traceparent: string): boolean {
+    const parts = traceparent.split('-');
+    return (
+      parts.length === 4 &&
+      /^[0-9a-f]{2}$/.test(parts[0]) && // version
+      /^[0-9a-f]{32}$/.test(parts[1]) && // trace ID
+      /^[0-9a-f]{16}$/.test(parts[2]) && // span ID
+      /^[0-9a-f]{2}$/.test(parts[3]) // trace flags
+    );
+  }
+
+  private generateTraceId(): string {
+    return Math.random().toString(16).substr(2, 32).padEnd(32, '0');
+  }
+
+  private generateSpanId(): string {
+    return Math.random().toString(16).substr(2, 16).padEnd(16, '0');
   }
 
   private generateRequestId(): string {

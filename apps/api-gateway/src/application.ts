@@ -5,6 +5,7 @@ import {
   FastifyAdapter,
   type NestFastifyApplication,
 } from '@nestjs/platform-fastify';
+import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger';
 import { AppModule } from './app.module.js';
 import { GATEWAY_CONFIG, type GatewayConfig } from './config/gateway-config.js';
 
@@ -46,6 +47,44 @@ export async function createGateway(
         transform: true,
       }),
     );
+
+    // Setup Swagger/OpenAPI documentation
+    const config = new DocumentBuilder()
+      .setTitle('Autonomous MFE Orchestrator API')
+      .setDescription(
+        'Multi-tenant API gateway for detecting and healing API contract drift between upstream services and micro-frontend consumers.',
+      )
+      .setVersion('1.0.0')
+      .addBearerAuth(
+        { type: 'http', scheme: 'bearer', bearerFormat: 'JWT' },
+        'bearer',
+      )
+      .addApiKey(
+        { type: 'apiKey', name: 'x-api-key', in: 'header' },
+        'api-key',
+      )
+      .addServer(
+        `http://localhost:${app.get<GatewayConfig>(GATEWAY_CONFIG).port}`,
+        'Local development',
+      )
+      .addTag('auth', 'Authentication and authorization')
+      .addTag('orgs', 'Organization management')
+      .addTag('consumers', 'API consumer (micro-frontend) management')
+      .addTag('services', 'Upstream service registry')
+      .addTag('contracts', 'API contract observation and drift detection')
+      .addTag('healing', 'Contract healing and patch generation')
+      .addTag('health', 'Service health checks')
+      .addTag('metrics', 'Prometheus metrics')
+      .build();
+
+    const document = SwaggerModule.createDocument(app, config);
+    SwaggerModule.setup('docs', app, document, {
+      swaggerOptions: {
+        defaultModelsExpandDepth: 1,
+        deepLinking: true,
+      },
+    });
+
     if (options.shutdownHooks !== false) app.enableShutdownHooks();
     await app.init();
     return app;

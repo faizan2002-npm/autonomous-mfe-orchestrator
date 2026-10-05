@@ -1,0 +1,198 @@
+groups:
+  - name: orchestrator_alerts
+    interval: 30s
+    rules:
+      # LATENCY ALERTS
+      - alert: SlowAPICalls_Warning
+        expr: |
+          histogram_quantile(0.95, sum(rate(http_request_duration_seconds_bucket[5m])) by (le))
+          > 0.3
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "API response times are elevated"
+          description: "P95 latency is {{ $value | humanizeDuration }} (threshold: 300ms)"
+
+      - alert: SlowAPICalls_Critical
+        expr: |
+          histogram_quantile(0.95, sum(rate(http_request_duration_seconds_bucket[5m])) by (le))
+          > 0.5
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "API response times are dangerously slow"
+          description: "P95 latency is {{ $value | humanizeDuration }} (threshold: 500ms)"
+
+      # ERROR RATE ALERTS
+      - alert: HighErrorRate_Warning
+        expr: |
+          (
+            sum(rate(http_requests_total{status=~"5.."}[5m]))
+            /
+            sum(rate(http_requests_total[5m]))
+          ) > 0.005
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Error rate is elevated"
+          description: "Error rate is {{ $value | humanizePercentage }} (threshold: 0.5%)"
+
+      - alert: HighErrorRate_Critical
+        expr: |
+          (
+            sum(rate(http_requests_total{status=~"5.."}[5m]))
+            /
+            sum(rate(http_requests_total[5m]))
+          ) > 0.01
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Critical error rate detected"
+          description: "Error rate is {{ $value | humanizePercentage }} (threshold: 1%)"
+
+      # CIRCUIT BREAKER ALERTS
+      - alert: CircuitBreakerOpen
+        expr: circuit_breaker_state{state="open"} == 1
+        for: 5m
+        labels:
+          severity: high
+        annotations:
+          summary: "Circuit breaker stuck open"
+          description: "Circuit breaker for {{ $labels.service }} has been open for > 5 minutes"
+
+      - alert: CircuitBreakerHalfOpen
+        expr: circuit_breaker_state{state="half_open"} == 1
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Circuit breaker in recovery for too long"
+          description: "{{ $labels.service }} circuit breaker in HALF_OPEN for > 10 minutes (may oscillate)"
+
+      # GEMINI API ALERTS
+      - alert: GeminiTimeoutRate_High
+        expr: |
+          (
+            sum(rate(gemini_request_timeout_total[5m]))
+            /
+            sum(rate(gemini_request_total[5m]))
+          ) > 0.05
+        for: 5m
+        labels:
+          severity: high
+        annotations:
+          summary: "Gemini API timeout rate is high"
+          description: "{{ $value | humanizePercentage }} of Gemini requests timing out (threshold: 5%)"
+
+      # DATABASE ALERTS
+      - alert: DatabaseConnectionPoolExhausted
+        expr: db_connection_pool_active{} >= db_connection_pool_size{}
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Database connection pool exhausted"
+          description: "All {{ $labels.pool_size }} database connections in use"
+
+      - alert: DatabaseConnectionPoolHigh
+        expr: |
+          (
+            db_connection_pool_active{}
+            /
+            db_connection_pool_size{}
+          ) > 0.8
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Database connection pool usage high"
+          description: "{{ $value | humanizePercentage }} of pool capacity in use ({{ $labels.active }}/{{ $labels.size }})"
+
+      # REDIS ALERTS
+      - alert: RedisLockContention_High
+        expr: |
+          rate(redis_lock_wait_total[5m]) > 10
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Redis lock contention detected"
+          description: "{{ $value | humanize }} lock acquisitions/sec (possible bottleneck)"
+
+      # NOTIFICATION DELIVERY ALERTS
+      - alert: NotificationDeliveryFailures
+        expr: |
+          (
+            sum(rate(notification_delivery_failed_total[5m]))
+            /
+            sum(rate(notification_delivery_total[5m]))
+          ) > 0.1
+        for: 10m
+        labels:
+          severity: high
+        annotations:
+          summary: "Notification delivery failure rate high"
+          description: "{{ $value | humanizePercentage }} of notifications failing (threshold: 10%)"
+
+      - alert: NotificationDeliveryBacklog
+        expr: notification_delivery_queue_depth{} > 1000
+        for: 30m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Notification delivery backlog growing"
+          description: "{{ $value | humanize }} notifications waiting to be sent (may cause delays)"
+
+      # PATCH GENERATION ALERTS
+      - alert: PatchGenerationTimeout
+        expr: |
+          rate(patch_generation_timeout_total[5m]) > 0
+        for: 5m
+        labels:
+          severity: high
+        annotations:
+          summary: "Patch generation timeouts occurring"
+          description: "{{ $value | humanize }} patch timeouts/sec (Gemini or computation too slow)"
+
+      - alert: PatchGenerationFailures
+        expr: |
+          (
+            sum(rate(patch_generation_failed_total[5m]))
+            /
+            sum(rate(patch_generation_total[5m]))
+          ) > 0.05
+        for: 10m
+        labels:
+          severity: medium
+        annotations:
+          summary: "Patch generation failure rate elevated"
+          description: "{{ $value | humanizePercentage }} of patch generation attempts failing"
+
+      # HEALTH CHECK ALERTS
+      - alert: HealthCheckFailures
+        expr: |
+          (
+            sum(rate(health_check_failed_total[5m]))
+            /
+            sum(rate(health_check_total[5m]))
+          ) > 0.005
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Health check is failing"
+          description: "{{ $value | humanizePercentage }} of health checks failing (dependencies may be down)"
+
+      # SERVICE AVAILABILITY
+      - alert: ServiceDown
+        expr: up{job="api-gateway"} == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "API Gateway is down"
+          description: "Gateway not responding to health checks for > 1 minute"
