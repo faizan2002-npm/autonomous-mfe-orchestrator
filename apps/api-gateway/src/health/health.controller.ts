@@ -1,7 +1,7 @@
 import { Controller, Get, HttpCode, Res, UseGuards } from '@nestjs/common';
 import { ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
 import { Throttle, ThrottlerGuard } from '@nestjs/throttler';
-import type { Response } from 'express';
+import type { FastifyReply } from 'fastify';
 import { HealthService } from './health.service.js';
 
 /**
@@ -19,10 +19,10 @@ export class HealthController {
   @ApiResponse({ status: 200, description: 'Service is healthy' })
   @ApiResponse({ status: 503, description: 'Service is unhealthy (dependency down)' })
   @Throttle({ default: { limit: 100, ttl: 60 } })
-  async check(@Res() res: Response): Promise<void> {
+  async check(@Res({ passthrough: true }) reply: FastifyReply) {
     const status = await this.health.check();
-    const statusCode = status.status === 'unhealthy' ? 503 : 200;
-    res.status(statusCode).json(status);
+    reply.status(status.status === 'unhealthy' ? 503 : 200);
+    return status;
   }
 
   /**
@@ -48,10 +48,10 @@ export class HealthController {
   @ApiResponse({ status: 200, description: 'Service is ready' })
   @ApiResponse({ status: 503, description: 'Service is not ready' })
   @Throttle({ default: { limit: 100, ttl: 60 } })
-  async readiness(@Res() res: Response): Promise<void> {
+  async readiness(@Res({ passthrough: true }) reply: FastifyReply) {
     const status = await this.health.check();
-    const statusCode = status.status === 'unhealthy' ? 503 : 200;
-    res.status(statusCode).json(status);
+    reply.status(status.status === 'unhealthy' ? 503 : 200);
+    return status;
   }
 
   /**

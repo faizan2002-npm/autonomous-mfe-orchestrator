@@ -8,6 +8,7 @@ import { DemoModule } from './demo/demo.module.js';
 import { EventsModule } from './events/events.module.js';
 import { GovernanceModule } from './governance/governance.module.js';
 import { HealthModule } from './health/health.module.js';
+import { ObservabilityModule } from './observability/observability.module.js';
 import { NotificationsModule } from './notifications/notifications.module.js';
 import { OpenApiModule } from './openapi/openapi.module.js';
 import { OrgsModule } from './orgs/orgs.module.js';
@@ -32,6 +33,7 @@ import { ServicesModule } from './services/services.module.js';
     ]),
     GatewayConfigModule,
     CommonModule,
+    ObservabilityModule,
     EventsModule,
     AuthModule,
     OrgsModule,

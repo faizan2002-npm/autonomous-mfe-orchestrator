@@ -1,59 +1,45 @@
 # Multi-stage build for the Autonomous MFE Orchestrator API Gateway
 # Stage 1: Build
-FROM node:20-alpine AS builder
+FROM node:22-alpine AS builder
 
 WORKDIR /app
 
-# Install pnpm
-RUN npm install -g pnpm@9
+# Install pnpm (version from package.json's packageManager)
+RUN npm install -g pnpm@9.12.0
 
-# Copy package files
-COPY pnpm-lock.yaml pnpm-workspace.yaml package.json ./
+# Workspace manifests and shared TypeScript config
+COPY pnpm-lock.yaml pnpm-workspace.yaml package.json .npmrc tsconfig.base.json ./
 
-# Copy all packages and apps
+# Only the gateway and the packages it depends on
 COPY packages ./packages
 COPY apps/api-gateway ./apps/api-gateway
-COPY .npmrc .npmrc
 
-# Install dependencies
-RUN pnpm install --frozen-lockfile
+# The lockfile covers the whole workspace; projects not copied here are skipped.
+# --ignore-scripts skips the root "prepare" (husky), which needs .git.
+RUN pnpm install --frozen-lockfile --ignore-scripts
 
-# Build shared packages first, then gateway
-RUN pnpm --filter @orchestrator/shared-types build
-RUN pnpm --filter @orchestrator/database build
-RUN pnpm --filter @orchestrator/core build
-RUN pnpm --filter @orchestrator/crypto build
-RUN pnpm --filter @orchestrator/config build
-RUN pnpm --filter @orchestrator/adapter-runtime build
-RUN pnpm --filter @orchestrator/gemini-client build
-RUN pnpm --filter @orchestrator/upstream-client build
-RUN pnpm --filter api-gateway build
+# Build the gateway and its workspace dependencies, then drop dev dependencies
+RUN pnpm --filter "@orchestrator/gateway..." build
+RUN pnpm prune --prod --ignore-scripts
 
 # Stage 2: Runtime
-FROM node:20-alpine
+FROM node:22-alpine
 
 WORKDIR /app
 
 # Install dumb-init for proper signal handling
 RUN apk add --no-cache dumb-init curl
 
-# Install pnpm
-RUN npm install -g pnpm@9
-
 # Create non-root user
 RUN addgroup -g 1001 -S nodejs
 RUN adduser -S nodejs -u 1001
 
-# Copy from builder: only production dependencies
-COPY --from=builder --chown=nodejs:nodejs /app/node_modules ./node_modules
-COPY --from=builder --chown=nodejs:nodejs /app/packages ./packages
-COPY --from=builder --chown=nodejs:nodejs /app/apps/api-gateway/dist ./dist
-COPY --from=builder --chown=nodejs:nodejs /app/apps/api-gateway/package.json ./package.json
-
-# Copy .env.example for reference (not used at runtime)
-COPY --chown=nodejs:nodejs .env.example .env.example
+# pnpm links workspace packages and dependencies with relative symlinks, so the layout is kept.
+COPY --from=builder --chown=nodejs:nodejs /app /app
 
 USER nodejs
+
+WORKDIR /app/apps/api-gateway
 
 EXPOSE 4000 9090
 
@@ -62,6 +48,6 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
   CMD curl -f http://localhost:4000/health/live || exit 1
 
 # Use dumb-init to properly handle signals (SIGTERM for graceful shutdown)
-ENTRYPOINT ["/usr/sbin/dumb-init", "--"]
+ENTRYPOINT ["/usr/bin/dumb-init", "--"]
 
 CMD ["node", "dist/main.js"]

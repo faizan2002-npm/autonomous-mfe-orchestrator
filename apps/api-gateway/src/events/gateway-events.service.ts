@@ -22,16 +22,19 @@ export type GatewayEventInput = GatewayEvent extends infer E
 @Injectable()
 export class GatewayEventsService implements OnApplicationBootstrap {
   private readonly localEvents = new Subject<GatewayEvent>();
-  private mergedStream?: Observable<GatewayEvent>;
+  private readonly mergedStream: Observable<GatewayEvent>;
 
-  constructor(private readonly redisEvents: RedisEventService) {}
-
-  onApplicationBootstrap(): void {
-    // Merge local and Redis event streams; subscribe to ensure side effects happen
+  constructor(private readonly redisEvents: RedisEventService) {
+    // Built eagerly because other providers subscribe in their constructors; merge is lazy,
+    // so nothing flows until the first subscription.
     this.mergedStream = merge(
       this.localEvents.asObservable(),
       this.redisEvents.stream(),
     );
+  }
+
+  onApplicationBootstrap(): void {
+    // Subscribe to ensure side effects happen
     this.mergedStream.subscribe();
   }
 
@@ -41,18 +44,23 @@ export class GatewayEventsService implements OnApplicationBootstrap {
       at: new Date().toISOString(),
     } as GatewayEvent;
 
-    // Publish to Redis (all instances will receive it)
+    // Publish to Redis for the other instances
     this.redisEvents.publish(fullEvent);
 
     // Also emit locally (for immediate local SSE clients, plus mergedStream subscribers)
     this.localEvents.next(fullEvent);
   }
 
-  /** Returns observable of events from all instances (merged Redis + local). */
+  /** Events from all instances (local + Redis), for live views such as SSE. */
   stream(): Observable<GatewayEvent> {
-    if (!this.mergedStream) {
-      throw new Error('GatewayEventsService not yet initialized');
-    }
     return this.mergedStream;
+  }
+
+  /**
+   * Events published by this instance only. Side effects (notifications, drift memory) subscribe
+   * here, so each event is handled once by the instance that produced it, not once per instance.
+   */
+  localStream(): Observable<GatewayEvent> {
+    return this.localEvents.asObservable();
   }
 }

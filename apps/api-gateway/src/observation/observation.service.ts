@@ -46,7 +46,7 @@ export class ObservationService {
     @Inject(GatewayEventsService) private readonly events: GatewayEventsService,
   ) {
     // A rolled-back patch means the drift is unhandled again: let the next occurrence re-trigger healing.
-    this.events.stream().subscribe((event) => {
+    this.events.localStream().subscribe((event) => {
       if (event.type === 'patch.rolledBack')
         void this.forgetDrift({ ...event.contract, orgId: event.orgId }).catch(
           (error: unknown) =>

@@ -1,105 +1,92 @@
-import { test } from 'node:test';
-import assert from 'node:assert';
-import { createGateway } from '../api-gateway/src/application.js';
-import { query } from './helpers/db.mjs';
+// Distributed healing lock: two gateway instances racing on the same drift generate one patch.
+import { test, before, after } from 'node:test';
+import assert from 'node:assert/strict';
+import Redis from 'ioredis';
+import { dist, redisUrl, suffix } from './helpers/gateway.mjs';
 
-// Test that distributed healing lock works correctly with 2 concurrent instances.
-// Verifies: only 1 patch generated when 2 instances race on same contract drift.
+const { HealingService } = await dist('healing/healing.service.js');
 
-const PORT_1 = 4001;
-const PORT_2 = 4002;
+const sleep = (ms) => new Promise((done) => setTimeout(done, ms));
 
-test.describe('Healing Service Concurrency', async () => {
-  let app1, app2;
-  let orgId, contractId;
+let redis1;
+let redis2;
+before(() => {
+  redis1 = new Redis(redisUrl);
+  redis2 = new Redis(redisUrl);
+});
+after(async () => {
+  await redis1.quit();
+  await redis2.quit();
+});
 
-  test.before(async () => {
-    // Start 2 gateway instances
-    process.env.GATEWAY_PORT = PORT_1;
-    app1 = await createGateway();
-    await app1.listen(PORT_1);
+/** A gateway instance's HealingService with a slow, counting patch generator. */
+function instance(redis, generated, deployed) {
+  const cognitive = {
+    async generateAndValidatePatch(task) {
+      generated.push(task.contractId);
+      await sleep(200);
+      return { patchId: `patch-${generated.length}`, adapterCode: 'return payload;' };
+    },
+  };
+  const canary = {
+    async deployPatch(patch) {
+      deployed.push(patch.patchId);
+    },
+  };
+  return new HealingService(redis, cognitive, canary);
+}
 
-    process.env.GATEWAY_PORT = PORT_2;
-    app2 = await createGateway();
-    await app2.listen(PORT_2);
+const task = (contractId) => ({
+  driftEventId: 'drift-1',
+  contractId,
+  orgId: 'org-1',
+  consumerId: 'consumer-1',
+  consumerName: 'web',
+  serviceName: 'users',
+  httpMethod: 'GET',
+  endpointPath: '/api/v1/users',
+  expectedSchema: ['id:number'],
+  diffDetails: {},
+  samplePayload: { id: 1 },
+});
 
-    // Create test org and contract
-    const orgRes = await query(`
-      INSERT INTO orgs (name, slug, tier)
-      VALUES ('Test Org', 'test-' || random(), 'pro')
-      RETURNING id
-    `);
-    orgId = orgRes[0].id;
+test('only one instance heals a contract when both race on the same drift', async () => {
+  const generated = [];
+  const deployed = [];
+  const first = instance(redis1, generated, deployed);
+  const second = instance(redis2, generated, deployed);
+  const contractId = `contract-${suffix()}`;
 
-    const contractRes = await query(`
-      INSERT INTO contracts (org_id, consumer, service, method, path, status)
-      VALUES ($1, 'app', 'api', 'GET', '/users', 'drifted')
-      RETURNING id
-    `, [orgId]);
-    contractId = contractRes[0].id;
-  });
+  first.schedule(task(contractId));
+  second.schedule(task(contractId));
+  // Waits for the scheduled work, as on shutdown.
+  await Promise.all([first.onModuleDestroy(), second.onModuleDestroy()]);
 
-  test.after(async () => {
-    await app1.close();
-    await app2.close();
-  });
+  assert.deepEqual(generated, [contractId]);
+  assert.equal(deployed.length, 1);
+  assert.equal(await redis1.get(`healing:${contractId}`), null, 'lock is released');
+});
 
-  test('should generate only 1 patch when 2 instances race on same contract', async () => {
-    // Trigger healing on both instances simultaneously
-    const promise1 = fetch(`http://localhost:${PORT_1}/api/v1/healing/trigger`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ contractId }),
-    }).then((r) => r.json());
+test('a contract can be healed again once the previous run finished', async () => {
+  const generated = [];
+  const deployed = [];
+  const contractId = `contract-${suffix()}`;
+  for (const redis of [redis1, redis2]) {
+    const healing = instance(redis, generated, deployed);
+    healing.schedule(task(contractId));
+    await healing.onModuleDestroy();
+  }
+  assert.equal(generated.length, 2);
+  assert.equal(deployed.length, 2);
+});
 
-    const promise2 = fetch(`http://localhost:${PORT_2}/api/v1/healing/trigger`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ contractId }),
-    }).then((r) => r.json());
-
-    const [result1, result2] = await Promise.all([promise1, promise2]);
-
-    // One should succeed (acquire lock), one should return without generating patch
-    const successCount = [result1, result2].filter((r) => r.patchId).length;
-    assert.equal(
-      successCount,
-      1,
-      `Expected exactly 1 patch generated, got ${successCount}`,
-    );
-
-    // Verify database: only 1 patch row for this contract
-    const patchesRes = await query(`
-      SELECT id FROM patches WHERE contract_id = $1
-    `, [contractId]);
-
-    assert.equal(
-      patchesRes.length,
-      1,
-      `Expected 1 patch in database, found ${patchesRes.length}`,
-    );
-
-    // Check Redis lock was released
-    const lockKey = `healing:${contractId}`;
-    const lock = await app1.get('RedisService').client.get(lockKey);
-    assert.equal(lock, null, 'Lock should be released after healing completes');
-  });
-
-  test('should allow both instances to read same patch', async () => {
-    // Get patch from instance 1
-    const patchRes1 = await fetch(
-      `http://localhost:${PORT_1}/api/v1/patches?contract=${contractId}`,
-    ).then((r) => r.json());
-
-    // Get patch from instance 2
-    const patchRes2 = await fetch(
-      `http://localhost:${PORT_2}/api/v1/patches?contract=${contractId}`,
-    ).then((r) => r.json());
-
-    assert.equal(
-      patchRes1.data[0].id,
-      patchRes2.data[0].id,
-      'Both instances should see the same patch',
-    );
-  });
+test('different contracts heal in parallel', async () => {
+  const generated = [];
+  const deployed = [];
+  const healing = instance(redis1, generated, deployed);
+  healing.schedule(task(`contract-${suffix()}`));
+  healing.schedule(task(`contract-${suffix()}`));
+  await healing.onModuleDestroy();
+  assert.equal(generated.length, 2);
+  assert.equal(deployed.length, 2);
 });

@@ -1,76 +1,117 @@
-// Integration tests for contract pinning, versioning, and schema evolution
+// Contract pinning over the real gateway: baselines learned from traffic, pins stored and
+// shown, ignored fields never drift and required fields do.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { randomBytes } from 'node:crypto';
-import postgres from 'postgres';
-import { resolve } from 'node:path';
-import { pathToFileURL } from 'node:url';
+import { createServer } from 'node:http';
+import { startGateway, suffix } from './helpers/gateway.mjs';
 
-const databaseUrl = process.env.TEST_DATABASE_URL;
-const redisUrl = process.env.TEST_REDIS_URL;
-assert.ok(databaseUrl && redisUrl, 'TEST_DATABASE_URL and TEST_REDIS_URL required');
+const sleep = (ms) => new Promise((done) => setTimeout(done, ms));
 
-const gatewayRoot = resolve(import.meta.dirname, '../api-gateway');
-const { createGateway } = await import(pathToFileURL(`${gatewayRoot}/dist/application.js`).href);
+let payload = { id: 1, name: 'Ada', email: 'ada@pin.test', internal_id: 'x1' };
+const upstream = createServer((_req, res) => {
+  res.writeHead(200, { 'content-type': 'application/json' });
+  res.end(JSON.stringify(payload));
+});
+await new Promise((done) => upstream.listen(0, '127.0.0.1', done));
+const upstreamUrl = `http://127.0.0.1:${upstream.address().port}`;
+test.after(() => {
+  upstream.closeAllConnections();
+  upstream.close();
+});
 
 test('Contracts: pinning, versioning, field masking', async () => {
-  const setup = postgres(databaseUrl, { onnotice: () => {} });
-  await setup.end();
-
-  const app = await createGateway({ logger: false, shutdownHooks: false });
-  const http = app.getHttpAdapter().getInstance();
-  const call = (method, url, { headers = {}, payload } = {}) => http.inject({ method, url, headers, payload });
-
-  const slug = `pin-${randomBytes(3).toString('hex')}`;
-  const auth = { authorization: `Bearer ${Buffer.from(JSON.stringify({ sub: 'test', email: 'pin@test' })).toString('base64')}` };
+  const gateway = await startGateway();
+  const { call } = gateway;
+  const owner = await gateway.signIn('00000000-0000-4000-8000-0000000000c1', 'pin@pin.test');
+  const slug = `pin-${suffix()}`;
 
   try {
-    // Setup org, service, consumer
-    await call('POST', '/api/orgs', {
-      headers: auth,
-      payload: { name: 'Pinning Test', slug },
-    });
+    assert.equal(
+      (await call('POST', '/api/orgs', { headers: owner, payload: { name: 'Pinning', slug } }))
+        .statusCode,
+      201,
+    );
+    const svc = (
+      await call('POST', `/api/orgs/${slug}/services`, {
+        headers: owner,
+        payload: { serviceName: 'users', baseUrl: upstreamUrl },
+      })
+    ).json();
+    const consumer = (
+      await call('POST', `/api/orgs/${slug}/consumers`, {
+        headers: owner,
+        payload: { name: 'worker', kind: 'backend', serviceIds: [svc.id] },
+      })
+    ).json();
+    const key = (
+      await call('POST', `/api/orgs/${slug}/consumers/${consumer.id}/keys`, {
+        headers: owner,
+        payload: { type: 'secret' },
+      })
+    ).json().key;
+    const fetchUser = () =>
+      call('GET', '/api/v1/users/users/1', { headers: { 'x-orchestrator-key': key } });
+    const contracts = async () =>
+      (await call('GET', `/api/orgs/${slug}/governance/services/users`, { headers: owner }))
+        .json().contracts;
+    const driftCount = async () =>
+      (await call('GET', `/api/orgs/${slug}/governance/drift-events?service=users`, {
+        headers: owner,
+      })).json().items.length;
 
-    const svc = (await call('POST', `/api/orgs/${slug}/services`, {
-      headers: auth,
-      payload: { serviceName: 'api', baseUrl: 'http://api.test' },
-    })).json();
+    // The first response becomes the baseline contract.
+    assert.equal((await fetchUser()).statusCode, 200);
+    let contract;
+    for (let attempt = 0; attempt < 20 && !contract; attempt++) {
+      await sleep(100);
+      contract = (await contracts())[0];
+    }
+    assert.ok(contract, 'baseline contract is learned from traffic');
+    assert.equal(contract.pinnedFields, null);
+    assert.equal(contract.version, 1);
 
-    const con = (await call('POST', `/api/orgs/${slug}/consumers`, {
-      headers: auth,
-      payload: { name: 'web', kind: 'frontend', serviceIds: [svc.id] },
-    })).json();
+    const pins = { required: ['id', 'name', 'email'], ignored: ['internal_id'] };
+    const pinned = await call(
+      'PUT',
+      `/api/orgs/${slug}/governance/contracts/${contract.id}/pins`,
+      { headers: owner, payload: pins },
+    );
+    assert.equal(pinned.statusCode, 200, pinned.body);
+    assert.deepEqual((await contracts())[0].pinnedFields, pins);
+    assert.equal(
+      (
+        await call('PUT', `/api/orgs/${slug}/governance/contracts/${contract.id}/pins`, {
+          headers: owner,
+          payload: { required: 'id' },
+        })
+      ).statusCode,
+      400,
+    );
 
-    // Create contract with schema
-    const contract = (await call('POST', `/api/orgs/${slug}/governance/contracts`, {
-      headers: auth,
-      payload: {
-        consumerId: con.id,
-        serviceId: svc.id,
-        httpMethod: 'GET',
-        endpointPath: '/api/users/1',
-        schemaTokens: ['id:number', 'name:string', 'email:string', 'internal_id:string'],
-      },
-    })).json();
+    // Changes to ignored or unpinned fields are not drift for this consumer.
+    payload = { id: 1, name: 'Ada', email: 'ada@pin.test', internalId: 'x1', extra: true };
+    await fetchUser();
+    await sleep(300);
+    assert.equal(await driftCount(), 0);
 
-    // Pin required fields
-    const pinned = await call('PATCH', `/api/orgs/${slug}/governance/contracts/${contract.id}/pins`, {
-      headers: auth,
-      payload: {
-        required: ['id', 'name', 'email'],
-        ignored: ['internal_id'],
-      },
-    });
-    assert.equal(pinned.statusCode, 200);
+    // Losing a required field is.
+    payload = { id: 1, full_name: 'Ada', email: 'ada@pin.test' };
+    await fetchUser();
+    let drifts = 0;
+    for (let attempt = 0; attempt < 20 && !drifts; attempt++) {
+      await sleep(100);
+      drifts = await driftCount();
+    }
+    assert.equal(drifts, 1, 'renaming a required field is recorded as drift');
 
-    // Verify pinned state
-    const view = (await call('GET', `/api/orgs/${slug}/governance/contracts/${contract.id}`, { headers: auth })).json();
-    assert.ok(view.pinnedFields);
-    assert.deepEqual(view.pinnedFields.required, ['id', 'name', 'email']);
-    assert.deepEqual(view.pinnedFields.ignored, ['internal_id']);
-
-    console.log('✓ Contracts: pinning, versioning, field masking');
+    // Clearing the pins stores null again.
+    const cleared = await call(
+      'PUT',
+      `/api/orgs/${slug}/governance/contracts/${contract.id}/pins`,
+      { headers: owner, payload: { required: [], ignored: [] } },
+    );
+    assert.deepEqual(cleared.json(), { pinnedFields: null });
   } finally {
-    await app.close();
+    await gateway.close();
   }
 });

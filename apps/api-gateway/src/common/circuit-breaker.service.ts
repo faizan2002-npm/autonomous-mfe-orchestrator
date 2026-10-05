@@ -160,15 +160,16 @@ class RedisCircuitBreaker implements ICircuitBreaker {
   }
 
   async execute<T>(task: () => Promise<T>): Promise<T | undefined> {
-    const state = await this.getState();
+    let state = await this.getState();
 
     if (state.state === CircuitState.OPEN) {
       const now = Date.now();
       if (now < state.nextAttemptAt) {
         return undefined; // Still open, fail fast
       }
-      // Attempt recovery
-      await this.setState({ ...state, state: CircuitState.HALF_OPEN, successCount: 0 });
+      // Attempt recovery; the outcome below must be judged against HALF_OPEN, not OPEN.
+      state = { ...state, state: CircuitState.HALF_OPEN, successCount: 0 };
+      await this.setState(state);
       this.logger.log(
         `Circuit breaker [${this.key}] -> HALF_OPEN, attempting recovery (Redis)`,
       );

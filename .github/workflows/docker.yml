@@ -46,7 +46,7 @@ jobs:
             type=ref,event=pr
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
-            type=sha
+            type=sha,format=long
             type=raw,value=latest,enable={{is_default_branch}}
 
       - name: Build and push Docker image
@@ -56,8 +56,9 @@ jobs:
           push: ${{ github.event_name != 'pull_request' }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=registry,ref=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:buildcache
-          cache-to: type=registry,ref=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:buildcache,mode=max
+          # Pull requests can't push to the registry, so the layer cache lives in GitHub Actions.
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
 
   test-image:
     needs: build
@@ -83,7 +84,9 @@ jobs:
       - name: Test image build
         run: |
           docker run --rm orchestrator-gateway:test node --version
-          docker run --rm orchestrator-gateway:test npm list
+          # Loads the gateway's whole module graph (workspace packages included) without starting it.
+          docker run --rm --entrypoint node orchestrator-gateway:test --input-type=module \
+            -e "await import('./dist/application.js')"
 
       - name: Test health endpoint (basic)
         run: |
@@ -94,17 +97,25 @@ jobs:
     needs: build
     runs-on: ubuntu-latest
     if: github.event_name != 'pull_request'
+    permissions:
+      contents: read
+      packages: read
+      security-events: write
 
     steps:
       - name: Run Trivy vulnerability scanner
         uses: aquasecurity/trivy-action@master
+        env:
+          TRIVY_USERNAME: ${{ github.actor }}
+          TRIVY_PASSWORD: ${{ secrets.GITHUB_TOKEN }}
         with:
-          image-ref: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }}
+          # Matches the type=sha,format=long tag pushed by the build job.
+          image-ref: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:sha-${{ github.sha }}
           format: 'sarif'
           output: 'trivy-results.sarif'
 
       - name: Upload Trivy results
-        uses: github/codeql-action/upload-sarif@v2
+        uses: github/codeql-action/upload-sarif@v3
         if: always()
         with:
           sarif_file: 'trivy-results.sarif'

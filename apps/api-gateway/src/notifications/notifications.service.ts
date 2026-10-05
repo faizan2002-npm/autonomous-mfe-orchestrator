@@ -60,7 +60,7 @@ export class NotificationsService {
     @Inject(GatewayEventsService) private readonly events: GatewayEventsService,
     @Inject(ActivityService) private readonly activity: ActivityService,
   ) {
-    this.events.stream().subscribe((event) => {
+    this.events.localStream().subscribe((event) => {
       void this.handle(event).catch((error: unknown) =>
         this.logger.error(`Notification fan-out failed for ${event.type}: ${String(error)}`),
       );

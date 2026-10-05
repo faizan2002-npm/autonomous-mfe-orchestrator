@@ -1,98 +1,79 @@
-// Integration tests for service registry, SSRF guard, and health checks
+// Service registry over the real gateway: create, validation, SSRF guard, update and delete.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { randomBytes } from 'node:crypto';
-import postgres from 'postgres';
-import { resolve } from 'node:path';
-import { pathToFileURL } from 'node:url';
+import { startGateway, suffix } from './helpers/gateway.mjs';
 
-const databaseUrl = process.env.TEST_DATABASE_URL;
-assert.ok(databaseUrl, 'TEST_DATABASE_URL required');
-
-const gatewayRoot = resolve(import.meta.dirname, '../api-gateway');
-const { createGateway } = await import(pathToFileURL(`${gatewayRoot}/dist/application.js`).href);
-
-test('Services: create, update, test connection, SSRF guard', async () => {
-  const setup = postgres(databaseUrl, { onnotice: () => {} });
-  await setup.end();
-
-  const app = await createGateway({ logger: false, shutdownHooks: false });
-  const http = app.getHttpAdapter().getInstance();
-  const call = (method, url, { headers = {}, payload } = {}) => http.inject({ method, url, headers, payload });
-
-  const slug = `svc-${randomBytes(3).toString('hex')}`;
-  const token = Buffer.from(JSON.stringify({ sub: 'test-user', email: 'svc@test' })).toString('base64');
-  const auth = { authorization: `Bearer ${token}` };
+test('Services: create, update, SSRF guard, delete', async () => {
+  // Private upstreams are refused unless explicitly allowed.
+  const gateway = await startGateway({ ALLOW_PRIVATE_UPSTREAMS: 'false' });
+  const { call } = gateway;
+  const owner = await gateway.signIn('00000000-0000-4000-8000-0000000005e1', 'svc@test.dev');
+  const slug = `svc-${suffix()}`;
 
   try {
-    // Create org
-    await call('POST', '/api/orgs', {
-      headers: auth,
+    const org = await call('POST', '/api/orgs', {
+      headers: owner,
       payload: { name: 'Service Test Org', slug },
     });
+    assert.equal(org.statusCode, 201, org.body);
 
-    // Create service with valid URL
-    const service = await call('POST', `/api/orgs/${slug}/services`, {
-      headers: auth,
+    // A public IP literal needs no DNS lookup.
+    const created = await call('POST', `/api/orgs/${slug}/services`, {
+      headers: owner,
       payload: {
         serviceName: 'valid-service',
-        baseUrl: 'http://httpbin.org/api',
+        baseUrl: 'http://93.184.215.14/api',
         description: 'Test service',
       },
     });
-    assert.equal(service.statusCode, 201, `Service creation: ${service.body}`);
+    assert.equal(created.statusCode, 201, created.body);
+    const service = created.json();
 
-    // Reject private IP (SSRF)
-    const private = await call('POST', `/api/orgs/${slug}/services`, {
-      headers: auth,
-      payload: {
-        serviceName: 'private-svc',
-        baseUrl: 'http://192.168.1.1/api',
-      },
+    const privateIp = await call('POST', `/api/orgs/${slug}/services`, {
+      headers: owner,
+      payload: { serviceName: 'private-svc', baseUrl: 'http://192.168.1.1/api' },
     });
-    assert.equal(private.statusCode, 400);
-    assert.ok(private.body.includes('private'), 'Should reject private IP');
+    assert.equal(privateIp.statusCode, 400);
+    assert.match(privateIp.json().message, /private or reserved/);
 
-    // Reject localhost when not allowed
-    const localhost = await call('POST', `/api/orgs/${slug}/services`, {
-      headers: auth,
-      payload: {
-        serviceName: 'localhost-svc',
-        baseUrl: 'http://127.0.0.1:3000/api',
-      },
+    const loopback = await call('POST', `/api/orgs/${slug}/services`, {
+      headers: owner,
+      payload: { serviceName: 'localhost-svc', baseUrl: 'http://127.0.0.1:3000/api' },
     });
-    assert.equal(localhost.statusCode, 400);
+    assert.equal(loopback.statusCode, 400);
 
-    // Reject invalid URL
     const invalid = await call('POST', `/api/orgs/${slug}/services`, {
-      headers: auth,
-      payload: {
-        serviceName: 'bad-svc',
-        baseUrl: 'not-a-url',
-      },
+      headers: owner,
+      payload: { serviceName: 'bad-svc', baseUrl: 'not-a-url' },
     });
     assert.equal(invalid.statusCode, 400);
 
-    // Update service
-    const s = service.json();
-    const updated = await call('PATCH', `/api/orgs/${slug}/services/${s.id}`, {
-      headers: auth,
-      payload: {
-        description: 'Updated description',
-        timeoutMs: 15000,
-      },
+    const badName = await call('POST', `/api/orgs/${slug}/services`, {
+      headers: owner,
+      payload: { serviceName: 'Bad Name', baseUrl: 'http://93.184.215.14' },
     });
-    assert.equal(updated.statusCode, 200);
+    assert.equal(badName.statusCode, 400);
+
+    const updated = await call('PATCH', `/api/orgs/${slug}/services/${service.id}`, {
+      headers: owner,
+      payload: { description: 'Updated description', timeoutMs: 15000 },
+    });
+    assert.equal(updated.statusCode, 200, updated.body);
     assert.equal(updated.json().description, 'Updated description');
+    assert.equal(updated.json().timeoutMs, 15000);
 
-    // Test connection (may fail if httpbin is down, but shouldn't crash)
-    const test = await call('POST', `/api/orgs/${slug}/services/${s.id}/test`, { headers: auth });
-    assert.equal(test.statusCode, 200);
-    const result = test.json();
-    assert.ok('ok' in result);
+    const listed = await call('GET', `/api/orgs/${slug}/services`, { headers: owner });
+    assert.deepEqual(listed.json().map((s) => s.serviceName), ['valid-service']);
 
-    console.log('✓ Services: create, update, SSRF guard, connection test');
+    const removed = await call('DELETE', `/api/orgs/${slug}/services/${service.id}`, {
+      headers: owner,
+    });
+    assert.equal(removed.statusCode, 204, removed.body);
+    assert.deepEqual(
+      (await call('GET', `/api/orgs/${slug}/services`, { headers: owner })).json(),
+      [],
+    );
   } finally {
-    await app.close();
+    await gateway.close();
   }
 });

@@ -1,72 +1,71 @@
-import { test, expect } from '@playwright/test';
+import { expect, test } from '@playwright/test';
+import {
+  createBackendConsumer,
+  createOrg,
+  createService,
+  GATEWAY,
+  ORDER_SERVICE,
+  reviewer,
+} from './support';
 
-test.describe('Consumers and API Keys', () => {
-  test.beforeEach(async ({ page }) => {
-    await page.goto('/o/demo/consumers');
-  });
+test('consumer keys gate proxy traffic and can be revoked', async ({ request }) => {
+  const auth = await reviewer();
+  const slug = await createOrg(request, auth, 'consumers');
+  const service = await createService(request, auth, slug, 'orders', ORDER_SERVICE);
+  const { consumer, key } = await createBackendConsumer(request, auth, slug, 'billing', [service.id]);
+  const order = `${GATEWAY}/api/v1/orders/orders/ORD-9821`;
 
-  test('reviewer creates a backend consumer', async ({ page }) => {
-    await page.getByRole('button', { name: /create consumer/i }).click();
-    
-    await page.getByLabel('Consumer name').fill('report-service');
-    await page.getByLabel('Kind').selectOption('backend');
-    await page.getByRole('checkbox', { name: 'user-service' }).check();
-    await page.getByRole('button', { name: /create/i }).click();
+  expect((await request.get(order)).status()).toBe(401);
+  const ok = await request.get(order, { headers: { 'x-orchestrator-key': key.key } });
+  expect(ok.status()).toBe(200);
+  expect((await ok.json()).orderId).toBe('ORD-9821');
 
-    await expect(page.getByText('report-service')).toBeVisible();
-  });
+  // A consumer without access to the service is refused.
+  const other = await createBackendConsumer(request, auth, slug, 'analytics', []);
+  expect(
+    (await request.get(order, { headers: { 'x-orchestrator-key': other.key.key } })).status(),
+  ).toBe(403);
 
-  test('can issue and copy a secret key', async ({ page }) => {
-    // Create consumer first
-    await page.getByRole('button', { name: /create consumer/i }).click();
-    await page.getByLabel('Consumer name').fill('api-consumer');
-    await page.getByLabel('Kind').selectOption('backend');
-    await page.getByRole('button', { name: /create/i }).click();
+  // Backend consumers only get secret keys.
+  expect(
+    (
+      await request.post(`${GATEWAY}/api/orgs/${slug}/consumers/${consumer.id}/keys`, {
+        headers: auth,
+        data: { type: 'publishable', allowedOrigins: ['http://app.test'] },
+      })
+    ).status(),
+  ).toBe(400);
 
-    // Issue key
-    await page.getByRole('link', { name: 'api-consumer' }).click();
-    await page.getByRole('button', { name: /issue key/i }).click();
-    await page.getByLabel('Type').selectOption('secret');
-    await page.getByRole('button', { name: /issue/i }).click();
+  const revoked = await request.delete(
+    `${GATEWAY}/api/orgs/${slug}/consumers/${consumer.id}/keys/${key.id}`,
+    { headers: auth },
+  );
+  expect(revoked.status()).toBeLessThan(300);
+  expect((await request.get(order, { headers: { 'x-orchestrator-key': key.key } })).status()).toBe(
+    401,
+  );
+});
 
-    // Key shown once
-    const keyInput = page.getByLabel(/sk_/);
-    await expect(keyInput).toBeVisible();
-    const keyValue = await keyInput.inputValue();
-    expect(keyValue).toMatch(/^sk_/);
-
-    // Copy button exists
-    await page.getByRole('button', { name: /copy/i }).click();
-    await expect(page.getByText(/copied/i)).toBeVisible();
-  });
-
-  test('can revoke a key', async ({ page }) => {
-    // Navigate to a consumer
-    await page.getByRole('link', { name: 'acme-portal' }).click();
-
-    // Find and revoke a key
-    const revokeButton = page.getByRole('button', { name: /revoke/i }).first();
-    await revokeButton.click();
-    await page.getByRole('button', { name: /confirm|revoke/i }).click();
-
-    // Verify revoked state
-    await expect(page.getByText(/revoked|inactive/i)).toBeVisible();
-  });
-
-  test('can grant service access', async ({ page }) => {
-    await page.getByRole('link', { name: 'acme-portal' }).click();
-    await page.getByRole('button', { name: /grant access|add service/i }).click();
-
-    await page.getByLabel('Service').selectOption('user-service');
-    await page.getByRole('button', { name: /grant|add/i }).click();
-
-    await expect(page.getByText('user-service')).toBeVisible();
-  });
-
-  test('displays last-used timestamp', async ({ page }) => {
-    await page.getByRole('link', { name: 'acme-portal' }).click();
-    
-    // Keys table should show last used
-    await expect(page.getByText(/last used|never/i)).toBeVisible();
-  });
+test('publishable keys only work from their allowed origins', async ({ request }) => {
+  const auth = await reviewer();
+  const slug = await createOrg(request, auth, 'origins');
+  const service = await createService(request, auth, slug, 'orders', ORDER_SERVICE);
+  const consumer = await (
+    await request.post(`${GATEWAY}/api/orgs/${slug}/consumers`, {
+      headers: auth,
+      data: { name: 'portal', kind: 'frontend', serviceIds: [service.id] },
+    })
+  ).json();
+  const key = await (
+    await request.post(`${GATEWAY}/api/orgs/${slug}/consumers/${consumer.id}/keys`, {
+      headers: auth,
+      data: { type: 'publishable', allowedOrigins: ['http://app.test'] },
+    })
+  ).json();
+  expect(key.key).toMatch(/^pk_/);
+  const order = `${GATEWAY}/api/v1/orders/orders/ORD-9821`;
+  const from = (origin: string) =>
+    request.get(order, { headers: { 'x-orchestrator-key': key.key, origin } });
+  expect((await from('http://app.test')).status()).toBe(200);
+  expect((await from('http://evil.test')).status()).toBe(403);
 });
