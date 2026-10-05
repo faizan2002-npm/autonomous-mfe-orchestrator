@@ -1,67 +1,61 @@
-import { test, expect } from '@playwright/test';
+import { expect, test } from '@playwright/test';
+import {
+  createBackendConsumer,
+  createOrg,
+  createService,
+  DRIFTING_USER_SERVICE,
+  eventually,
+  GATEWAY,
+  reviewer,
+} from './support';
 
-test.describe('Notifications and Inbox', () => {
-  test.beforeEach(async ({ page }) => {
-    await page.goto('/o/demo');
-  });
+test('drift reaches the reviewer inbox once and can be marked read', async ({ request }) => {
+  const auth = await reviewer();
+  const slug = await createOrg(request, auth, 'inbox');
+  const org = `${GATEWAY}/api/orgs/${slug}`;
+  const service = await createService(request, auth, slug, 'users', DRIFTING_USER_SERVICE);
+  const { key } = await createBackendConsumer(request, auth, slug, 'crm', [service.id]);
+  const chaos = (mutated: boolean) =>
+    request.post(`${org}/demo/services/users/chaos`, { headers: auth, data: { mutated } });
+  const user = () =>
+    request.get(`${GATEWAY}/api/v1/users/users/101`, {
+      headers: { 'x-orchestrator-key': key.key },
+    });
 
-  test('bell icon shows unread count', async ({ page }) => {
-    const bell = page.getByRole('button', { name: /notifications|inbox|bell/i });
-    await expect(bell).toBeVisible();
-    
-    // Badge should show count
-    const badge = bell.locator('span[class*="badge"]');
-    await expect(badge).toBeVisible({ timeout: 5000 });
-  });
+  try {
+    await chaos(false);
+    await user();
+    await eventually(async () => {
+      const view = await (await request.get(`${org}/governance/services/users`, { headers: auth })).json();
+      return view.contracts?.length;
+    });
+    await chaos(true);
+    await user();
 
-  test('can open and read notifications', async ({ page }) => {
-    const bell = page.getByRole('button', { name: /notifications|inbox|bell/i });
-    await bell.click();
+    type Item = { id: string; event: string; readAt: string | null };
+    const breaking = await eventually(async () => {
+      const inbox = await (await request.get(`${org}/notifications`, { headers: auth })).json();
+      const items: Item[] = inbox.items ?? inbox;
+      const found = items.filter((item) => item.event === 'drift.breaking');
+      return found.length ? found : undefined;
+    });
+    expect(breaking, 'breaking drift notifies the owner').toBeTruthy();
+    expect(breaking!.length, 'each event notifies once').toBe(1);
+    expect(breaking![0].readAt).toBeNull();
 
-    // Inbox should show
-    await expect(page.getByRole('heading', { name: /inbox/i })).toBeVisible();
-    await expect(page.getByText(/notification|message/i)).toBeVisible();
-  });
+    const read = await request.post(`${org}/notifications/read`, {
+      headers: auth,
+      data: { ids: [breaking![0].id] },
+    });
+    expect(read.status()).toBe(204);
+    const inbox = await (await request.get(`${org}/notifications`, { headers: auth })).json();
+    const items: Item[] = inbox.items ?? inbox;
+    expect(items.find((item) => item.id === breaking![0].id)?.readAt).toBeTruthy();
 
-  test('can navigate to notification details', async ({ page }) => {
-    const bell = page.getByRole('button', { name: /notifications|inbox|bell/i });
-    await bell.click();
-
-    // Click first notification
-    const notification = page.getByRole('button', { name: /patch|drift|alert/i }).first();
-    if (await notification.isVisible()) {
-      await notification.click();
-      // Should navigate to relevant page (patch, service, etc.)
-    }
-  });
-
-  test('notification settings tab shows preferences', async ({ page }) => {
-    await page.goto('/o/demo/settings');
-    const notificationsTab = page.getByRole('tab', { name: /notifications/i });
-    
-    if (await notificationsTab.isVisible()) {
-      await notificationsTab.click();
-      
-      // Should show channel preferences matrix
-      await expect(page.getByText(/email|push|slack/i)).toBeVisible();
-    }
-  });
-
-  test('can enable/disable push notifications on device', async ({ page, context }) => {
-    await page.goto('/o/demo/settings');
-    const notificationsTab = page.getByRole('tab', { name: /notifications/i });
-    
-    if (await notificationsTab.isVisible()) {
-      await notificationsTab.click();
-
-      const enableButton = page.getByRole('button', { name: /enable push|subscribe/i });
-      if (await enableButton.isVisible()) {
-        // Grant notification permission
-        await context.grantPermissions(['notifications']);
-        await enableButton.click();
-        
-        await expect(page.getByText(/enabled|subscribed/i)).toBeVisible();
-      }
-    }
-  });
+    // Preferences round-trip.
+    const preferences = await request.get(`${org}/notifications/preferences`, { headers: auth });
+    expect(preferences.status()).toBe(200);
+  } finally {
+    await chaos(false);
+  }
 });

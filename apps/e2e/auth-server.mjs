@@ -10,10 +10,16 @@ const jwks = {
   keys: [{ ...(await exportJWK(publicKey)), kid: 'e2e', alg: 'ES256' }],
 };
 
-async function session() {
+// The browser walkthrough signs in as the reviewer; API specs use their own user so the
+// organizations they create don't change what the reviewer sees.
+const USERS = {
+  reviewer: { id: '00000000-0000-4000-8000-0000000000e2', email: 'e2e-reviewer@example.test' },
+  api: { id: '00000000-0000-4000-8000-0000000000e3', email: 'e2e-api@example.test' },
+};
+
+async function session(name = 'reviewer') {
   const user = {
-    id: '00000000-0000-4000-8000-0000000000e2',
-    email: 'e2e-reviewer@example.test',
+    ...USERS[name],
     aud: 'authenticated',
     role: 'authenticated',
     app_metadata: {},
@@ -43,11 +49,13 @@ async function session() {
 }
 
 createServer(async (req, res) => {
+  const url = new URL(req.url ?? '/', 'http://localhost');
+  const user = url.searchParams.get('user') ?? 'reviewer';
   const body =
-    req.url === '/auth/v1/.well-known/jwks.json'
+    url.pathname === '/auth/v1/.well-known/jwks.json'
       ? jwks
-      : req.url === '/__e2e/session'
-        ? await session()
+      : url.pathname === '/__e2e/session' && user in USERS
+        ? await session(user)
         : null;
   res.writeHead(body ? 200 : 404, { 'content-type': 'application/json' });
   res.end(JSON.stringify(body ?? { error: 'not found' }));

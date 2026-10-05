@@ -162,8 +162,9 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Install Playwright
-        run: pnpm exec playwright install --with-deps
+      # The suite uses the runner's preinstalled Google Chrome (channel: 'chrome').
+      - name: Check Chrome
+        run: google-chrome --version
 
       - name: Run e2e tests
         run: pnpm test:e2e

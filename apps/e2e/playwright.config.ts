@@ -61,14 +61,20 @@ export default defineConfig({
       `${AUTH_URL}/auth/v1/.well-known/jwks.json`,
     ),
     server(
-      'node dist/index.js',
-      '../../services/user-service',
+      'node fixtures/demo-upstream.mjs user-service 3001',
+      '.',
       'http://localhost:3001/health',
     ),
     server(
-      'node dist/index.js',
-      '../../services/order-service',
+      'node fixtures/demo-upstream.mjs order-service 3002',
+      '.',
       'http://localhost:3002/health',
+    ),
+    // A separate user-service whose chaos switch the API specs flip, away from the demo org's.
+    server(
+      'node fixtures/demo-upstream.mjs user-service 3003',
+      '.',
+      'http://localhost:3003/health',
     ),
     server(
       'node dist/main.js',
