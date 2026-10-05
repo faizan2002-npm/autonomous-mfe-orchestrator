@@ -21,7 +21,11 @@
     "test:jest:coverage": "jest --config jest.config.global.js --coverage",
     "test:e2e:headed": "HEADED=true bash scripts/test-e2e.sh",
     "test:all": "pnpm build && pnpm lint && pnpm test && pnpm test:integration && pnpm test:e2e",
-    "prepare": "husky install"
+    "prepare": "husky install",
+    "test:e2e:services": "pnpm exec playwright test apps/e2e/tests/services.spec.ts",
+    "test:e2e:consumers": "pnpm exec playwright test apps/e2e/tests/consumers.spec.ts",
+    "test:e2e:notifications": "pnpm exec playwright test apps/e2e/tests/notifications.spec.ts",
+    "test:integration:services": "TEST_DATABASE_URL=... TEST_REDIS_URL=... node --test apps/integration-tests/services.test.mjs"
   },
   "devDependencies": {
     "@types/node": "^20.14.0",
