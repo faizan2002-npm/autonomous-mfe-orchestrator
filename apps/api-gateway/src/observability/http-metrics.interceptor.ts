@@ -3,7 +3,6 @@ import {
   NestInterceptor,
   ExecutionContext,
   CallHandler,
-  Logger,
 } from '@nestjs/common';
 import { Observable } from 'rxjs';
 import { tap, catchError } from 'rxjs/operators';
@@ -17,8 +16,6 @@ import { contextualLogger } from './logger.js';
  */
 @Injectable()
 export class HttpMetricsInterceptor implements NestInterceptor {
-  private readonly logger = new Logger(HttpMetricsInterceptor.name);
-
   constructor(private readonly metrics: MetricsService) {}
 
   intercept(context: ExecutionContext, next: CallHandler): Observable<unknown> {
@@ -27,7 +24,7 @@ export class HttpMetricsInterceptor implements NestInterceptor {
 
     // Extract/generate request ID (for backward compatibility)
     const requestId = (request.headers['x-request-id'] as string) || this.generateRequestId();
-    request.id = requestId;
+    (request as any).id = requestId;
 
     // Extract/generate W3C Trace Context (traceparent header)
     const traceparent = this.extractOrGenerateTraceparent(request);

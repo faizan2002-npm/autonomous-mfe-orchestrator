@@ -139,7 +139,6 @@ export class RetryPolicy {
     const capped = Math.min(exponential, this.maxDelayMs);
 
     // Add jitter: ± 10% of the delay
-    const jitterAmount = capped * (this.jitterPercent / 100);
     const jitterMultiplier = 1 + (Math.random() - 0.5) * 2 * (this.jitterPercent / 100);
     const withJitter = capped * jitterMultiplier;
 

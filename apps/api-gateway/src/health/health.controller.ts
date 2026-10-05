@@ -2,7 +2,7 @@ import { Controller, Get, HttpCode, Res, UseGuards } from '@nestjs/common';
 import { ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
 import { Throttle, ThrottlerGuard } from '@nestjs/throttler';
 import type { Response } from 'express';
-import { HealthService, type HealthStatus } from './health.service.js';
+import { HealthService } from './health.service.js';
 
 /**
  * Health check endpoints for load balancers and Kubernetes.

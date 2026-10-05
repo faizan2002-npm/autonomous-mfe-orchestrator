@@ -1,4 +1,4 @@
-import { Global, Module, Inject, Optional } from '@nestjs/common';
+import { Global, Module } from '@nestjs/common';
 import type { Redis } from 'ioredis';
 import { CircuitBreakerService } from './circuit-breaker.service.js';
 import { RedisModule } from '../redis/redis.module.js';

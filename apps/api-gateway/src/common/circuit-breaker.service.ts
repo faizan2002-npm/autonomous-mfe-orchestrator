@@ -9,7 +9,7 @@ import type { Redis } from 'ioredis';
 @Injectable()
 export class CircuitBreakerService {
   private readonly logger = new Logger(CircuitBreakerService.name);
-  private readonly breakers = new Map<string, CircuitBreaker>();
+  private readonly breakers = new Map<string, ICircuitBreaker>();
 
   constructor(private readonly redis?: Redis) {
     if (redis) {
@@ -19,7 +19,7 @@ export class CircuitBreakerService {
     }
   }
 
-  get(key: string, opts?: CircuitBreakerOptions): CircuitBreaker {
+  get(key: string, opts?: CircuitBreakerOptions): ICircuitBreaker {
     if (!this.breakers.has(key)) {
       const breaker = this.redis
         ? new RedisCircuitBreaker(key, opts, this.redis, this.logger)
@@ -45,7 +45,12 @@ export enum CircuitState {
   HALF_OPEN = 'HALF_OPEN',
 }
 
-class CircuitBreaker {
+interface ICircuitBreaker {
+  execute<T>(task: () => Promise<T>): Promise<T | undefined>;
+  getStateValue?(): Promise<CircuitState>;
+}
+
+class CircuitBreaker implements ICircuitBreaker {
   private state = CircuitState.CLOSED;
   private failureCount = 0;
   private successCount = 0;
@@ -128,13 +133,17 @@ class CircuitBreaker {
   getState(): CircuitState {
     return this.state;
   }
+
+  async getStateValue(): Promise<CircuitState> {
+    return this.state;
+  }
 }
 
 /**
  * Redis-backed circuit breaker for multi-instance deployments.
  * State is stored in Redis with TTL matching reset timeout, enabling cross-instance coordination.
  */
-class RedisCircuitBreaker {
+class RedisCircuitBreaker implements ICircuitBreaker {
   private readonly failureThreshold: number;
   private readonly resetTimeoutMs: number;
   private readonly halfOpenRequests: number;
@@ -175,7 +184,7 @@ class RedisCircuitBreaker {
     }
   }
 
-  private async onSuccess(previousState: CircuitBreakerState): void {
+  private async onSuccess(previousState: CircuitBreakerState): Promise<void> {
     if (previousState.state === CircuitState.HALF_OPEN) {
       const newSuccessCount = previousState.successCount + 1;
       if (newSuccessCount >= this.halfOpenRequests) {
@@ -197,7 +206,7 @@ class RedisCircuitBreaker {
     }
   }
 
-  private async onFailure(previousState: CircuitBreakerState): void {
+  private async onFailure(previousState: CircuitBreakerState): Promise<void> {
     if (previousState.state === CircuitState.HALF_OPEN) {
       const nextAttemptAt = Date.now() + this.resetTimeoutMs;
       await this.setState({

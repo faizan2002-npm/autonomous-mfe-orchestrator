@@ -120,7 +120,7 @@ export class ProxyService {
       }),
     ]).catch((error: unknown) =>
       this.logger.error(`Observation error: ${String(error)}`, {
-        contractId: contract.contractId,
+        contractKey: contractKey(contract),
       }),
     );
     const result = {

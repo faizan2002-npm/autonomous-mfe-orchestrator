@@ -3,7 +3,6 @@ import type { Redis } from 'ioredis';
 import type { DrizzleDb } from '@orchestrator/database';
 import { DRIZZLE_DB } from '../database/database.tokens.js';
 import { REDIS_CLIENT } from '../redis/redis.tokens.js';
-import { ServiceRegistryService } from '../services/service-registry.service.js';
 
 export interface HealthStatus {
   status: 'healthy' | 'degraded' | 'unhealthy';
@@ -33,7 +32,6 @@ export class HealthService {
   constructor(
     @Inject(DRIZZLE_DB) private readonly db: DrizzleDb,
     @Inject(REDIS_CLIENT) private readonly redis: Redis,
-    @Inject(ServiceRegistryService) private readonly services: ServiceRegistryService,
   ) {}
 
   async check(): Promise<HealthStatus> {
@@ -105,46 +103,12 @@ export class HealthService {
 
   /**
    * Check health of registered upstream services.
-   * Probes each upstream's /health endpoint with 5s timeout.
+   * Note: Global health check doesn't have org context, so returns empty.
+   * Individual upstreams are checked per-org during request routing.
    */
   async checkUpstreams(): Promise<UpstreamHealthStatus[]> {
-    const services = await this.services.getAllServices();
-    const results: UpstreamHealthStatus[] = [];
-
-    for (const service of services) {
-      const healthUrl = `${service.baseUrl}/health`;
-      try {
-        const start = Date.now();
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 5000);
-
-        try {
-          const response = await fetch(healthUrl, {
-            signal: controller.signal,
-            redirect: 'manual',
-          });
-          clearTimeout(timeoutId);
-
-          const status = response.ok ? 'up' : 'down';
-          results.push({
-            name: service.name,
-            url: service.baseUrl,
-            status,
-            responseTimeMs: Date.now() - start,
-          });
-        } catch (error) {
-          clearTimeout(timeoutId);
-          throw error;
-        }
-      } catch (error) {
-        results.push({
-          name: service.name,
-          url: service.baseUrl,
-          status: 'down',
-        });
-      }
-    }
-
-    return results;
+    // Upstream health checks are done per-org during request routing
+    // The global health check focuses on database and cache connectivity
+    return [];
   }
 }
