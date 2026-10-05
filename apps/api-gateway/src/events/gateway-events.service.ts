@@ -22,16 +22,19 @@ export type GatewayEventInput = GatewayEvent extends infer E
 @Injectable()
 export class GatewayEventsService implements OnApplicationBootstrap {
   private readonly localEvents = new Subject<GatewayEvent>();
-  private mergedStream?: Observable<GatewayEvent>;
+  private readonly mergedStream: Observable<GatewayEvent>;
 
-  constructor(private readonly redisEvents: RedisEventService) {}
-
-  onApplicationBootstrap(): void {
-    // Merge local and Redis event streams; subscribe to ensure side effects happen
+  constructor(private readonly redisEvents: RedisEventService) {
+    // Built eagerly because other providers subscribe in their constructors; merge is lazy,
+    // so nothing flows until the first subscription.
     this.mergedStream = merge(
       this.localEvents.asObservable(),
       this.redisEvents.stream(),
     );
+  }
+
+  onApplicationBootstrap(): void {
+    // Subscribe to ensure side effects happen
     this.mergedStream.subscribe();
   }
 
@@ -50,9 +53,6 @@ export class GatewayEventsService implements OnApplicationBootstrap {
 
   /** Returns observable of events from all instances (merged Redis + local). */
   stream(): Observable<GatewayEvent> {
-    if (!this.mergedStream) {
-      throw new Error('GatewayEventsService not yet initialized');
-    }
     return this.mergedStream;
   }
 }

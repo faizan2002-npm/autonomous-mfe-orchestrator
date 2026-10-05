@@ -38,7 +38,10 @@ export interface UpstreamRequest {
   headers?: Record<string, string>;
   /** W3C Trace Context for distributed tracing (traceparent header). */
   traceparent?: string;
-  /** Cache responses for GET requests; default 300000ms (5 min). Set to 0 to disable. */
+  /**
+   * Cache successful GET responses for this long; off (0) by default. The key is the URL only,
+   * so only opt in for endpoints whose response doesn't depend on headers or credentials.
+   */
   cacheTtlMs?: number;
   /** Transport override, e.g. an SSRF-guarded fetch. */
   fetch?: typeof fetch;
@@ -76,7 +79,7 @@ async function performRequest(
   const method = request.method.toUpperCase();
   const send = request.fetch ?? fetch;
   const cacheKey = `${method}:${url}`;
-  const cacheTtlMs = request.cacheTtlMs ?? (method === 'GET' ? 300_000 : 0);
+  const cacheTtlMs = request.cacheTtlMs ?? 0;
 
   // Check cache for GET requests
   if (method === 'GET' && cacheTtlMs > 0) {
