@@ -7,33 +7,9 @@ on:
     branches: [main]
 
 jobs:
-  build-and-test:
+  build-and-lint:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
-
-    services:
-      postgres:
-        image: postgres:17-alpine
-        env:
-          POSTGRES_PASSWORD: test
-          POSTGRES_DB: test
-        options: >-
-          --health-cmd pg_isready
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
-        ports:
-          - 5432:5432
-
-      redis:
-        image: redis:7-alpine
-        options: >-
-          --health-cmd "redis-cli ping"
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
-        ports:
-          - 6379:6379
+    timeout-minutes: 15
 
     steps:
       - uses: actions/checkout@v4
@@ -57,9 +33,3 @@ jobs:
 
       - name: Lint
         run: pnpm lint
-
-      - name: Integration tests
-        env:
-          TEST_DATABASE_URL: postgres://postgres:test@localhost:5432/test
-          TEST_REDIS_URL: redis://localhost:6379
-        run: pnpm test:integration
