@@ -51,6 +51,6 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
   CMD curl -f http://localhost:4000/health/live || exit 1
 
 # Use dumb-init to properly handle signals (SIGTERM for graceful shutdown)
-ENTRYPOINT ["/usr/sbin/dumb-init", "--"]
+ENTRYPOINT ["/usr/bin/dumb-init", "--"]
 
 CMD ["node", "dist/main.js"]
