@@ -1,0 +1,100 @@
+# Production docker-compose: uses external postgres (Supabase) and Redis (Upstash)
+# Override: docker-compose -f docker-compose.prod.yml up
+
+version: '3.9'
+
+services:
+  # API Gateway only (no postgres/redis in compose)
+  api-gateway:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: orchestrator-gateway-prod
+    environment:
+      # Database: Connect to external Supabase
+      SUPABASE_PROJECT_REF: ${SUPABASE_PROJECT_REF:?error}
+      SUPABASE_DB_PASSWORD: ${SUPABASE_DB_PASSWORD:?error}
+      SUPABASE_POOLER_HOST: ${SUPABASE_POOLER_HOST:?error}
+      SUPABASE_POOLER_PORT: '6543'  # Connection pooler
+      SUPABASE_ISOLATION_LEVEL: read_committed
+
+      # Redis: Connect to external Upstash
+      REDIS_URL: ${REDIS_URL:?error}
+
+      # Security: Load from .env
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY:?error}
+      KEY_PEPPER: ${KEY_PEPPER:?error}
+
+      # Gateway
+      GATEWAY_PORT: '4000'
+      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:?error}
+
+      # Upstreams: Load from .env
+      USER_SERVICE_URL: ${USER_SERVICE_URL:?error}
+      ORDER_SERVICE_URL: ${ORDER_SERVICE_URL:?error}
+      ALLOW_PRIVATE_UPSTREAMS: 'false'
+
+      # Drift detection
+      DRIFT_SIMILARITY_THRESHOLD: '0.15'
+      CANARY_TRAFFIC_PERCENTAGE: '10'
+
+      # Notifications: Load from .env
+      EMAIL_PROVIDER: ${EMAIL_PROVIDER:?error}
+      EMAIL_FROM: ${EMAIL_FROM:?error}
+      RESEND_API_KEY: ${RESEND_API_KEY:-}
+
+      # Gemini
+      GEMINI_API_KEY: ${GEMINI_API_KEY:?error}
+      GEMINI_MODEL: ${GEMINI_MODEL:-gemini-2-flash-lite}
+      GEMINI_TIMEOUT_MS: '10000'
+
+      # Rate limiting
+      RATE_LIMIT_PER_MINUTE: ${RATE_LIMIT_PER_MINUTE:-600}
+
+      # Circuit breaker: Use Redis in prod
+      CIRCUIT_BREAKER_BACKEND: redis
+
+      # Graceful shutdown
+      SHUTDOWN_TIMEOUT_MS: '30000'
+
+      # Observability
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      METRICS_ENABLED: 'true'
+
+      # Node
+      NODE_ENV: production
+    ports:
+      - '4000:4000'
+      - '9090:9090'  # Prometheus metrics (may want to restrict this)
+    restart: unless-stopped
+    healthcheck:
+      test: ['CMD', 'curl', '-f', 'http://localhost:4000/health/ready']
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    logging:
+      driver: json-file
+      options:
+        max-size: '10m'
+        max-file: '3'
+
+  # Optional: Prometheus for metrics collection (sidecar)
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: orchestrator-prometheus
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+    ports:
+      - '9091:9090'  # Access at http://localhost:9091
+    depends_on:
+      - api-gateway
+    restart: unless-stopped
+
+volumes:
+  prometheus_data:
+    driver: local

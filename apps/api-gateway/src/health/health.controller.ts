@@ -1,4 +1,5 @@
-import { Controller, Get, HttpCode } from '@nestjs/common';
+import { Controller, Get, HttpCode, Res } from '@nestjs/common';
+import type { Response } from 'express';
 import { HealthService, type HealthStatus } from './health.service.js';
 
 /**
@@ -10,15 +11,10 @@ export class HealthController {
   constructor(private readonly health: HealthService) {}
 
   @Get()
-  @HttpCode(200)
-  async check(): Promise<HealthStatus> {
+  async check(@Res() res: Response): Promise<void> {
     const status = await this.health.check();
-    // Return 503 if unhealthy (NestJS will adjust status code)
-    if (status.status === 'unhealthy') {
-      // Controllers can't directly set 503, so we return the data and rely on interceptors
-      // or let the client interpret the response
-    }
-    return status;
+    const statusCode = status.status === 'unhealthy' ? 503 : 200;
+    res.status(statusCode).json(status);
   }
 
   /**
@@ -34,11 +30,12 @@ export class HealthController {
   /**
    * Readiness probe (is the service ready to handle requests?).
    * Returns 200 only if all critical dependencies are healthy.
+   * Returns 503 if any critical dependency is down.
    */
   @Get('ready')
-  @HttpCode(200)
-  async readiness(): Promise<HealthStatus> {
+  async readiness(@Res() res: Response): Promise<void> {
     const status = await this.health.check();
-    return status;
+    const statusCode = status.status === 'unhealthy' ? 503 : 200;
+    res.status(statusCode).json(status);
   }
 }

@@ -78,15 +78,17 @@ export class InferenceService {
     },
     prompt: string,
   ): Promise<string> {
+    // 10s timeout for Gemini; allows circuit breaker to decide if it's failing
     return Promise.race([
       generateText({
         apiKey: config.apiKey,
         model: config.model,
         systemInstruction: config.systemInstruction,
         prompt,
+        timeoutMs: 10_000, // Explicit timeout passed to gemini-client
       }),
       new Promise<string>((_, reject) =>
-        setTimeout(() => reject(new TimeoutError('Gemini timeout')), 30_000),
+        setTimeout(() => reject(new TimeoutError('Gemini timeout')), 10_000),
       ),
     ]);
   }

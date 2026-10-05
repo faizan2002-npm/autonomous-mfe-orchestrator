@@ -20,6 +20,7 @@ export interface HealthCheckResult {
 @Injectable()
 export class HealthService {
   private readonly logger = new Logger(HealthService.name);
+  private shuttingDown = false;
 
   constructor(
     @Inject(DRIZZLE_DB) private readonly db: DrizzleDb,
@@ -27,6 +28,17 @@ export class HealthService {
   ) {}
 
   async check(): Promise<HealthStatus> {
+    // During shutdown, readiness probe should return unhealthy to drain traffic
+    if (this.shuttingDown) {
+      return {
+        status: 'unhealthy',
+        checks: {
+          database: { status: 'down' },
+          redis: { status: 'down' },
+        },
+      };
+    }
+
     const dbCheck = await this.checkDatabase();
     const redisCheck = await this.checkRedis();
 
@@ -44,6 +56,11 @@ export class HealthService {
         redis: redisCheck,
       },
     };
+  }
+
+  markShuttingDown(): void {
+    this.shuttingDown = true;
+    this.logger.log('Marked as shutting down, readiness probe will return 503');
   }
 
   private async checkDatabase(): Promise<HealthCheckResult> {

@@ -1,0 +1,123 @@
+import { Injectable, Logger } from '@nestjs/common';
+import * as promClient from 'prom-client';
+
+/**
+ * Prometheus metrics for the API Gateway.
+ * Exposes metrics via GET /metrics endpoint for Prometheus scraping.
+ */
+@Injectable()
+export class MetricsService {
+  private readonly logger = new Logger(MetricsService.name);
+
+  // Patch generation metrics
+  readonly patchGenerationDuration = new promClient.Histogram({
+    name: 'gateway_patch_generation_duration_seconds',
+    help: 'Time to generate and validate a patch',
+    labelNames: ['org_id', 'outcome'],
+    buckets: [0.1, 0.5, 1, 2, 5, 10],
+  });
+
+  readonly patchGenerationFailures = new promClient.Counter({
+    name: 'gateway_patch_generation_failures_total',
+    help: 'Total failed patch generations',
+    labelNames: ['org_id', 'reason'],
+  });
+
+  // Circuit breaker metrics
+  readonly circuitBreakerState = new promClient.Gauge({
+    name: 'gateway_circuit_breaker_state',
+    help: 'Circuit breaker state (0=CLOSED, 1=OPEN, 2=HALF_OPEN)',
+    labelNames: ['name'],
+  });
+
+  // Gemini metrics
+  readonly geminiRequests = new promClient.Counter({
+    name: 'gateway_gemini_requests_total',
+    help: 'Total requests to Gemini API',
+    labelNames: ['model'],
+  });
+
+  readonly geminiTimeouts = new promClient.Counter({
+    name: 'gateway_gemini_timeouts_total',
+    help: 'Total Gemini timeouts',
+  });
+
+  readonly geminiDuration = new promClient.Histogram({
+    name: 'gateway_gemini_duration_seconds',
+    help: 'Gemini API response time',
+    buckets: [1, 2, 5, 10],
+  });
+
+  // Upstream metrics
+  readonly upstreamRequests = new promClient.Counter({
+    name: 'gateway_upstream_requests_total',
+    help: 'Total upstream service requests',
+    labelNames: ['service', 'method', 'status'],
+  });
+
+  readonly upstreamDuration = new promClient.Histogram({
+    name: 'gateway_upstream_duration_seconds',
+    help: 'Upstream service response time',
+    labelNames: ['service'],
+    buckets: [0.05, 0.1, 0.5, 1, 5],
+  });
+
+  readonly upstreamRetries = new promClient.Counter({
+    name: 'gateway_upstream_retries_total',
+    help: 'Upstream request retries',
+    labelNames: ['service', 'attempt'],
+  });
+
+  // Redis lock metrics
+  readonly redisLockContention = new promClient.Gauge({
+    name: 'gateway_redis_lock_contention',
+    help: 'Estimated # of waiting lock acquires',
+    labelNames: ['lock_name'],
+  });
+
+  readonly redisLockDuration = new promClient.Histogram({
+    name: 'gateway_redis_lock_duration_seconds',
+    help: 'Duration of held Redis locks',
+    labelNames: ['lock_name'],
+    buckets: [0.01, 0.1, 1, 5],
+  });
+
+  // HTTP metrics (set by interceptor)
+  readonly httpRequests = new promClient.Counter({
+    name: 'gateway_http_requests_total',
+    help: 'Total HTTP requests',
+    labelNames: ['method', 'path', 'status'],
+  });
+
+  readonly httpDuration = new promClient.Histogram({
+    name: 'gateway_http_duration_seconds',
+    help: 'HTTP request duration',
+    labelNames: ['method', 'path'],
+    buckets: [0.01, 0.05, 0.1, 0.5, 1, 5],
+  });
+
+  constructor() {
+    this.registerDefaultMetrics();
+    this.logger.log('Prometheus metrics initialized');
+  }
+
+  private registerDefaultMetrics(): void {
+    // Register default Node.js metrics (memory, CPU, etc.)
+    promClient.collectDefaultMetrics();
+  }
+
+  /**
+   * Get all metrics in Prometheus text format.
+   * Called by GET /metrics endpoint.
+   */
+  async getMetrics(): Promise<string> {
+    return promClient.register.metrics();
+  }
+
+  /**
+   * Reset all metrics (mainly for testing).
+   */
+  resetMetrics(): void {
+    promClient.register.resetMetrics();
+  }
+}

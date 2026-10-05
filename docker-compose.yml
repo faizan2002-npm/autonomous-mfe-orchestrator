@@ -1,0 +1,181 @@
+version: '3.9'
+
+services:
+  # PostgreSQL database (same as Supabase)
+  postgres:
+    image: postgres:17-alpine
+    container_name: orchestrator-postgres
+    environment:
+      POSTGRES_DB: orchestrator
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: password
+    ports:
+      - '5432:5432'
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U postgres']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - orchestrator
+
+  # Redis (Upstash alternative for local dev)
+  redis:
+    image: redis:7-alpine
+    container_name: orchestrator-redis
+    ports:
+      - '6379:6379'
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - orchestrator
+
+  # API Gateway
+  api-gateway:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: orchestrator-gateway
+    environment:
+      # Database (local postgres instead of Supabase)
+      SUPABASE_PROJECT_REF: local
+      SUPABASE_DB_PASSWORD: password
+      SUPABASE_POOLER_HOST: postgres
+      SUPABASE_POOLER_PORT: '5432'
+      SUPABASE_ISOLATION_LEVEL: read_committed
+
+      # Redis (local instead of Upstash)
+      REDIS_URL: redis://redis:6379
+
+      # Security (local defaults, change in production)
+      ENCRYPTION_KEY: dGVzdC1lbmNyeXB0aW9uLWtleS0zMi1ieXRlLWs= # base64(test-encryption-key-32-byte-k)
+      KEY_PEPPER: dGVzdC1rZXktcGVwcGVyLTMyLWJ5dGUtdm==      # base64(test-key-pepper-32-byte-v)
+
+      # Gateway
+      GATEWAY_PORT: '4000'
+      ALLOWED_ORIGINS: 'http://localhost:5000,http://localhost:5001,http://localhost:5002,http://localhost:5100'
+
+      # Upstreams (point to demo services in this compose)
+      USER_SERVICE_URL: http://mfe-user:5001
+      ORDER_SERVICE_URL: http://mfe-order:5002
+      ALLOW_PRIVATE_UPSTREAMS: 'true'
+
+      # Drift detection
+      DRIFT_SIMILARITY_THRESHOLD: '0.15'
+      CANARY_TRAFFIC_PERCENTAGE: '10'
+
+      # Notifications (log to console in local dev)
+      EMAIL_PROVIDER: log
+      EMAIL_FROM: noreply@orchestrator.local
+
+      # Gemini (optional, will use fallback if not set)
+      # GEMINI_API_KEY: your-key-here
+      GEMINI_MODEL: gemini-2-flash-lite
+      GEMINI_TIMEOUT_MS: '10000'
+
+      # Rate limiting
+      RATE_LIMIT_PER_MINUTE: '600'
+
+      # Circuit breaker
+      CIRCUIT_BREAKER_BACKEND: memory
+
+      # Graceful shutdown
+      SHUTDOWN_TIMEOUT_MS: '30000'
+
+      # Observability
+      LOG_LEVEL: debug
+      METRICS_ENABLED: 'true'
+
+      # Node
+      NODE_ENV: development
+    ports:
+      - '4000:4000'
+      - '9090:9090'  # Prometheus metrics
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - ./apps/api-gateway/src:/app/src:ro  # Hot reload source (requires pnpm dev)
+    networks:
+      - orchestrator
+
+  # Dashboard (React + Vite)
+  dashboard:
+    build:
+      context: .
+      dockerfile: apps/dashboard/Dockerfile
+    container_name: orchestrator-dashboard
+    environment:
+      VITE_API_BASE_URL: http://localhost:4000
+    ports:
+      - '5100:5100'
+    depends_on:
+      - api-gateway
+    networks:
+      - orchestrator
+
+  # MFE Shell (Module Federation host)
+  mfe-shell:
+    build:
+      context: apps/mfe-shell
+      dockerfile: Dockerfile
+    container_name: orchestrator-mfe-shell
+    environment:
+      VITE_API_BASE_URL: http://localhost:4000
+      VITE_USER_REMOTE_URL: http://localhost:5001/remoteEntry.js
+      VITE_ORDER_REMOTE_URL: http://localhost:5002/remoteEntry.js
+    ports:
+      - '5000:5000'
+    depends_on:
+      - api-gateway
+    networks:
+      - orchestrator
+
+  # MFE User (Module)
+  mfe-user:
+    build:
+      context: apps/mfe-user
+      dockerfile: Dockerfile
+    container_name: orchestrator-mfe-user
+    environment:
+      VITE_API_BASE_URL: http://localhost:4000
+    ports:
+      - '5001:5001'
+    depends_on:
+      - api-gateway
+    networks:
+      - orchestrator
+
+  # MFE Order (Module)
+  mfe-order:
+    build:
+      context: apps/mfe-order
+      dockerfile: Dockerfile
+    container_name: orchestrator-mfe-order
+    environment:
+      VITE_API_BASE_URL: http://localhost:4000
+    ports:
+      - '5002:5002'
+    depends_on:
+      - api-gateway
+    networks:
+      - orchestrator
+
+volumes:
+  postgres_data:
+    driver: local
+  redis_data:
+    driver: local
+
+networks:
+  orchestrator:
+    driver: bridge

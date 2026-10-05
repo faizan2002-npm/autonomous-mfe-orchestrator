@@ -1,13 +1,22 @@
 import { Logger } from '@nestjs/common';
 import { createGateway } from './application.js';
 import { GATEWAY_CONFIG, type GatewayConfig } from './config/gateway-config.js';
+import { GracefulShutdownHandler } from './shutdown/shutdown.handler.js';
 
 async function bootstrap(): Promise<void> {
   const app = await createGateway();
-  const { port } = app.get<GatewayConfig>(GATEWAY_CONFIG);
+  const config = app.get<GatewayConfig>(GATEWAY_CONFIG);
+  const logger = new Logger('Bootstrap');
+
   try {
-    await app.listen(port, '0.0.0.0');
-    Logger.log(`API gateway listening on port ${port}`, 'Bootstrap');
+    // Enable graceful shutdown handling
+    app.enableShutdownHooks();
+    const shutdownHandler = new GracefulShutdownHandler(app, 30_000); // 30s timeout
+    shutdownHandler.register();
+
+    await app.listen(config.port, '0.0.0.0');
+    logger.log(`API gateway listening on port ${config.port}`);
+    logger.log('Graceful shutdown enabled (SIGTERM/SIGINT will trigger 30s drain)');
   } catch (error) {
     await app.close();
     throw error;
@@ -15,6 +24,6 @@ async function bootstrap(): Promise<void> {
 }
 
 void bootstrap().catch((error: unknown) => {
-  Logger.error(String(error), undefined, 'Bootstrap');
+  new Logger('Bootstrap').error(String(error));
   process.exitCode = 1;
 });

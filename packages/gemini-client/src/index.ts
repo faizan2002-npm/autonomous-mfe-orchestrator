@@ -26,7 +26,7 @@ export async function generateText(options: GenerateOptions): Promise<string> {
     `${baseUrl}/models/${encodeURIComponent(options.model)}:generateContent`,
     {
       method: 'POST',
-      signal: AbortSignal.timeout(options.timeoutMs ?? 30_000),
+      signal: AbortSignal.timeout(options.timeoutMs ?? 10_000),
       // The key travels in a header, never the URL, so it stays out of access logs.
       headers: {
         'Content-Type': 'application/json',
